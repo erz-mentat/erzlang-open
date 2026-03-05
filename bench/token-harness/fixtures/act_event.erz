@@ -1,4 +1,0 @@
-erz{v:0.1}
-ev{id:"evt_303",t:act,dec:@dec_303,act:[{t:notify,target:ops_dispatch,tpl:@tpl_ops},{t:ticket,sys:incident_hub,prio:high,ddk:"evt_001"}],ddl:300}
-dc{id:"dec_303",score:0.83,rc:[injury_unknown,traffic_blocked,rush_hour]}
-rf{id:"tpl_ops",v:"Bitte Einsatzlage prüfen und Rückmeldung innerhalb von 5 Minuten."}

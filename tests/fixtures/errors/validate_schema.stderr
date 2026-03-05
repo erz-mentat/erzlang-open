@@ -1,1 +1,0 @@
-{"code":"ERZ_VALIDATE_SCHEMA","stage":"validate","message":"Missing required field(s) for 'ev': type","span":null,"hint":"Align statement fields with the compact subset contract.","details":{"error_type":"CompactValidationError","command":"validate"}}

@@ -1,3 +1,0 @@
-erz{v:0.1}
-ev{id:"evt_502",type:normalize,payload:{src:sms_gateway,ingestRef:{id:"evt_500"},lang:de,tz:"Europe/Berlin",ent:[{type:location,text:"S-Bahn Ostkreuz",score:0.77},{k:injury_hint,v:"leichte Verletzung",c:0.64}],normalizedTextRef:{ref:"@txt_norm_502"}}}
-rf{id:"@txt_norm_502",v:"Störung am Ostkreuz, mindestens eine Person mit leichter Verletzung."}

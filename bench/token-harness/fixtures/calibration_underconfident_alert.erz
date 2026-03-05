@@ -1,4 +1,0 @@
-erz{v:0.1}
-ev{id:"evt_401",t:alert,cat:B,sev:0.68,conf:0.59,cl:@cl_121,cal:@cal_city_v2}
-dc{id:"dec_401",raw:0.59,p:0.73,cal:underconfident,rt:human_review}
-cb{id:"cal_city_v2",m:piecewise,pts:[{r:0.1,p:0.08},{r:0.4,p:0.47},{r:0.6,p:0.73},{r:0.9,p:0.95}],src:ops_berlin_2026w07}

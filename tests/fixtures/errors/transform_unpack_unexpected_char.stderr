@@ -1,1 +1,0 @@
-{"code":"ERZ_TRANSFORM_ERROR","stage":"transform","message":"Unexpected character '#' at position 114","span":{"position":114},"hint":"Ensure pack/unpack input follows the supported fixture subset.","details":{"error_type":"TransformError","command":"unpack"}}
