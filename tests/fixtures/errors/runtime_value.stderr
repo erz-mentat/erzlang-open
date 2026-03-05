@@ -1,0 +1,1 @@
+{"code":"ERZ_RUNTIME_VALUE","stage":"runtime","message":"calibration must contain at least two points","span":null,"hint":"Runtime value violated allowed numeric/range constraints.","details":{"error_type":"ValueError","command":"eval"}}

@@ -1,0 +1,3 @@
+erz{v:1}
+event{type:"ingest",payload:{source:"sensor-a",severity:2}}
+rule{id:"r1",when:["event_type_present"],then:[{kind:"act",params:{rule_id:"r1"}}]}

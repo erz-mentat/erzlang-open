@@ -1,0 +1,1 @@
+{"code":"ERZ_IO_ERROR","stage":"cli","message":"[Errno 2] No such file or directory: 'missing-file.erz'","span":null,"hint":"Check file path, permissions, and stdin/stdout availability.","details":{"error_type":"FileNotFoundError","command":"parse"}}

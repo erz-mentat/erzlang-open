@@ -1,0 +1,12 @@
+erz{v:1}
+ev{type:"alert",payload:{conf_high:true,sev_critical:true,timestamp:"2026-02-25T17:00:00Z"}}
+rl{id:"r01_page_primary",when:["event_type_present","event_type_equals:alert","payload_has:sev_critical","payload_has:conf_high"],then:[{kind:"route",params:{priority:"p1",reason:"critical+high_confidence",target:"oncall_primary",via:"pager"}}]}
+rl{id:"r02_manual_review",when:["event_type_present","event_type_equals:alert","payload_has:sev_critical","payload_has:conf_low"],then:[{kind:"route",params:{priority:"p1",reason:"critical+low_confidence",target:"safety_triage",via:"human_review"}}]}
+rl{id:"r03_ops_digest",when:["event_type_present","event_type_equals:alert","payload_has:sev_warning","payload_has:conf_high"],then:[{kind:"route",params:{priority:"p2",reason:"warning+high_confidence",target:"ops_digest",via:"queue"}}]}
+ac{kind:"route",params:{priority:"p1",reason:"critical+high_confidence",target:"oncall_primary",via:"pager"}}
+ac{kind:"route",params:{priority:"p1",reason:"critical+low_confidence",target:"safety_triage",via:"human_review"}}
+ac{kind:"route",params:{priority:"p2",reason:"warning+high_confidence",target:"ops_digest",via:"queue"}}
+tr{rule_id:"r01_page_primary",matched_clauses:["event_type_present","event_type_equals:alert","payload_has:sev_critical","payload_has:conf_high"],score:1.0,calibrated_probability:0.98,timestamp:"2026-02-25T17:00:00Z",seed:"fixture-critical-high"}
+tr{rule_id:"r02_manual_review",matched_clauses:["event_type_present","event_type_equals:alert","payload_has:sev_critical","payload_has:conf_low"],score:1.0,calibrated_probability:0.76,timestamp:"2026-02-25T17:05:00Z",seed:"fixture-critical-low"}
+tr{rule_id:"r03_ops_digest",matched_clauses:["event_type_present","event_type_equals:alert","payload_has:sev_warning","payload_has:conf_high"],score:1.0,calibrated_probability:0.88,timestamp:"2026-02-25T17:10:00Z",seed:"fixture-warning-high"}
+pl{rt:{calibration_note:"Routing stays deterministic via bucket keys (sev_*/conf_*). Calibration changes only trace probabilities, not rule firing.",fixtures:["critical_high_conf","critical_low_conf","warning_high_conf"]}}

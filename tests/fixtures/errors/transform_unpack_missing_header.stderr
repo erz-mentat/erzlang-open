@@ -1,0 +1,1 @@
+{"code":"ERZ_TRANSFORM_ERROR","stage":"transform","message":"Missing required 'erz' header statement","span":null,"hint":"Ensure pack/unpack input follows the supported fixture subset.","details":{"error_type":"TransformError","command":"unpack"}}

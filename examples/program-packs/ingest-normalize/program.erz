@@ -1,0 +1,10 @@
+erz{v:1}
+ev{type:"ingest",payload:{channel:"telegram",ingest_id:"evt_ing_001",language_hint:"de",seed:"seed-pack-1",text_ref:"@txt_ing_001",timestamp:"2026-03-01T10:00:00Z"}}
+ev{type:"normalize",payload:{entities:[{kind:"location",value:"A100 Ausfahrt Spandau"},{kind:"vehicle_count",value:"2"}],ingest_id:"evt_ing_001",language:"de",normalized_text_ref:"@txt_norm_001",source:"nlp-v1",timestamp:"2026-03-01T10:00:02Z",timezone:"Europe/Berlin"}}
+rl{id:"r_ingest_to_normalize",when:["event_type_equals:ingest","payload_has:text_ref"],then:[{kind:"queue_normalize",params:{pipeline:"nlp-v1"}}]}
+rl{id:"r_normalize_publish",when:["event_type_equals:normalize","payload_has:normalized_text_ref","payload_has:entities"],then:[{kind:"notify",params:{channel:"ops_dispatch",template_ref:"@tpl_norm_ready"}}]}
+pl{rt:{max_latency_ms:5000,min_entities:1,min_probability:0.9}}
+rf{id:"tpl_norm_ready",v:"Normalisierung abgeschlossen: Einsatzlage aktualisieren."}
+rf{id:"txt_ing_001",v:"Unfall A100 Ausfahrt Spandau, zwei Fahrzeuge, keine sichtbaren Verletzten."}
+rf{id:"txt_norm_001",v:"Verkehrsunfall auf der A100, Ausfahrt Spandau. Zwei Fahrzeuge beteiligt, keine sichtbaren Verletzten."}
+tr{rule_id:"r_normalize_publish",matched_clauses:["event_type_equals:normalize","payload_has:normalized_text_ref","payload_has:entities"],score:1.0,calibrated_probability:0.93,timestamp:"2026-03-01T10:00:02Z",seed:"seed-pack-1"}

@@ -1,0 +1,4 @@
+erz{v:0.1}
+ev{id:"evt_402",t:alert,cat:A,sev:0.91,conf:0.88,cl:@cl_122,cal:@cal_rural_v1}
+dc{id:"dec_402",raw:0.88,p:0.69,cal:overconfident,rt:auto_dispatch}
+cb{id:"cal_rural_v1",m:piecewise,pts:[{r:0.2,p:0.26},{r:0.5,p:0.52},{r:0.8,p:0.66},{r:0.95,p:0.74}],src:ops_rural_2026w06}

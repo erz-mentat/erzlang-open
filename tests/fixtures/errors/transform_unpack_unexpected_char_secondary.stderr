@@ -1,0 +1,1 @@
+{"code":"ERZ_TRANSFORM_ERROR","stage":"transform","message":"Unexpected character '!' at position 139","span":{"position":139},"hint":"Ensure pack/unpack input follows the supported fixture subset.","details":{"error_type":"TransformError","command":"unpack"}}

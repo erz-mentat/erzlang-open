@@ -1,0 +1,130 @@
+[
+  {
+    "fields": {
+      "v": 1
+    },
+    "tag": "erz"
+  },
+  {
+    "fields": {
+      "payload": {
+        "channel": "telegram",
+        "ingest_id": "evt_ing_001",
+        "language_hint": "de",
+        "seed": "seed-pack-1",
+        "text_ref": "@txt_ing_001",
+        "timestamp": "2026-03-01T10:00:00Z"
+      },
+      "type": "ingest"
+    },
+    "tag": "ev"
+  },
+  {
+    "fields": {
+      "payload": {
+        "entities": [
+          {
+            "kind": "location",
+            "value": "A100 Ausfahrt Spandau"
+          },
+          {
+            "kind": "vehicle_count",
+            "value": "2"
+          }
+        ],
+        "ingest_id": "evt_ing_001",
+        "language": "de",
+        "normalized_text_ref": "@txt_norm_001",
+        "source": "nlp-v1",
+        "timestamp": "2026-03-01T10:00:02Z",
+        "timezone": "Europe/Berlin"
+      },
+      "type": "normalize"
+    },
+    "tag": "ev"
+  },
+  {
+    "fields": {
+      "id": "r_ingest_to_normalize",
+      "then": [
+        {
+          "kind": "queue_normalize",
+          "params": {
+            "pipeline": "nlp-v1"
+          }
+        }
+      ],
+      "when": [
+        "event_type_equals:ingest",
+        "payload_has:text_ref"
+      ]
+    },
+    "tag": "rl"
+  },
+  {
+    "fields": {
+      "id": "r_normalize_publish",
+      "then": [
+        {
+          "kind": "notify",
+          "params": {
+            "channel": "ops_dispatch",
+            "template_ref": "@tpl_norm_ready"
+          }
+        }
+      ],
+      "when": [
+        "event_type_equals:normalize",
+        "payload_has:normalized_text_ref",
+        "payload_has:entities"
+      ]
+    },
+    "tag": "rl"
+  },
+  {
+    "fields": {
+      "rt": {
+        "max_latency_ms": 5000,
+        "min_entities": 1,
+        "min_probability": 0.9
+      }
+    },
+    "tag": "pl"
+  },
+  {
+    "fields": {
+      "id": "tpl_norm_ready",
+      "v": "Normalisierung abgeschlossen: Einsatzlage aktualisieren."
+    },
+    "tag": "rf"
+  },
+  {
+    "fields": {
+      "id": "txt_ing_001",
+      "v": "Unfall A100 Ausfahrt Spandau, zwei Fahrzeuge, keine sichtbaren Verletzten."
+    },
+    "tag": "rf"
+  },
+  {
+    "fields": {
+      "id": "txt_norm_001",
+      "v": "Verkehrsunfall auf der A100, Ausfahrt Spandau. Zwei Fahrzeuge beteiligt, keine sichtbaren Verletzten."
+    },
+    "tag": "rf"
+  },
+  {
+    "fields": {
+      "calibrated_probability": 0.93,
+      "matched_clauses": [
+        "event_type_equals:normalize",
+        "payload_has:normalized_text_ref",
+        "payload_has:entities"
+      ],
+      "rule_id": "r_normalize_publish",
+      "score": 1.0,
+      "seed": "seed-pack-1",
+      "timestamp": "2026-03-01T10:00:02Z"
+    },
+    "tag": "tr"
+  }
+]

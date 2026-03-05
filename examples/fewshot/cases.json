@@ -1,0 +1,80 @@
+[
+  {
+    "id": "valid_erz_min",
+    "valid": true,
+    "source": "erz{v:1}",
+    "reason": "Minimal valid header statement with positive integer version."
+  },
+  {
+    "id": "valid_ev_unordered_payload_object",
+    "valid": true,
+    "source": "ev{payload:{z:2,a:1},type:\"ingest\"}",
+    "reason": "Compact event alias is valid; payload accepts compact values and formatter normalizes order."
+  },
+  {
+    "id": "valid_rl_single_action",
+    "valid": true,
+    "source": "rl{id:\"r1\",when:[\"event_type_present\"],then:[{kind:\"act\",params:{rule_id:\"r1\"}}]}",
+    "reason": "Compact rule alias with required id/when/then and valid action object in then[]."
+  },
+  {
+    "id": "valid_ac_params_mixed_keys",
+    "valid": true,
+    "source": "ac{params:{\"trace-id\":\"t1\",retry:0},kind:\"notify\"}",
+    "reason": "Compact action alias; params object may use quoted string keys and identifier keys."
+  },
+  {
+    "id": "valid_tr_with_optional_fields",
+    "valid": true,
+    "source": "tr{rule_id:\"r1\",matched_clauses:[\"event_type_present\"],score:80,timestamp:\"2026-02-24T15:00:00Z\",seed:\"seed-42\"}",
+    "reason": "Trace statement supports optional score/timestamp/seed with valid types."
+  },
+  {
+    "id": "valid_rf_and_pl_program",
+    "valid": true,
+    "source": "rf{id:\"tpl_ops\",v:\"Bitte prüfen\"}pl{rt:{min_severity:65,min_confidence:75}}",
+    "reason": "Program may contain adjacent statements; rf and pl are valid Sprint-3 tags."
+  },
+  {
+    "id": "invalid_unknown_tag",
+    "valid": false,
+    "source": "foo{x:1}",
+    "reason": "Only implemented statement tags are allowed.",
+    "expect_error_contains": "Unknown statement tag"
+  },
+  {
+    "id": "invalid_unknown_event_field",
+    "valid": false,
+    "source": "event{type:\"ingest\",extra:1}",
+    "reason": "event/ev accept only type and optional payload fields.",
+    "expect_error_contains": "Unknown field(s) for 'event': extra"
+  },
+  {
+    "id": "invalid_missing_rl_then",
+    "valid": false,
+    "source": "rl{id:\"r1\",when:[\"ok\"]}",
+    "reason": "rule/rl requires id, when, and then.",
+    "expect_error_contains": "Missing required field(s) for 'rl': then"
+  },
+  {
+    "id": "invalid_tr_matched_clauses_type",
+    "valid": false,
+    "source": "tr{rule_id:\"r1\",matched_clauses:[1]}",
+    "reason": "tr.matched_clauses must be a list where every element is a string.",
+    "expect_error_contains": "'tr.matched_clauses' must be a non-empty list of strings"
+  },
+  {
+    "id": "invalid_rf_v_not_string",
+    "valid": false,
+    "source": "rf{id:\"tpl_ops\",v:1}",
+    "reason": "rf.v must be a string value.",
+    "expect_error_contains": "'rf.v' must be a string"
+  },
+  {
+    "id": "invalid_pl_rt_not_object",
+    "valid": false,
+    "source": "pl{rt:[1,2]}",
+    "reason": "pl.rt is optional but must be an object when present.",
+    "expect_error_contains": "'pl.rt' must be an object"
+  }
+]

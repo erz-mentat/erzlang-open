@@ -1,0 +1,8 @@
+erz{v:1}
+event{type:"ingest",payload:{meta:{a:1,b:2},severity:2,source:"sensor-a"}}
+ev{type:"normalize",payload:{lang:"de",source:"voice-note",timezone:"Europe/Berlin"}}
+rl{id:"r-normalize",when:["event_type_present","payload_has:source"],then:[{kind:"annotate",params:{pipeline:"nlp",version:1}}]}
+ac{kind:"notify",params:{channel:"ops",template_ref:"tpl_ops"}}
+tr{rule_id:"r-normalize",matched_clauses:["event_type_present","payload_has:source"],timestamp:"2026-02-24T15:00:00Z",seed:"seed-42"}
+rf{id:"tpl_ops",v:"Bitte Einsatzlage prüfen und Rückmeldung geben."}
+pl{rt:{min_confidence:75,min_severity:65}}

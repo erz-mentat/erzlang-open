@@ -1,0 +1,6 @@
+erz{v:1}
+pl{rt:{category_keys:["ops","security"],geo_radius_meters:500,time_window_minutes:10}}
+rl{id:"r_cluster_attach_ops",when:["event_type_present","event_type_equals:incident_candidate","payload_has:category_ops","payload_has:within_time_window_10m","payload_has:within_geo_radius_500m"],then:[{kind:"cluster_attach",params:{cluster_bucket:"ops",mode:"dedup",reason:"time_geo_category_match"}}]}
+rl{id:"r_cluster_attach_security",when:["event_type_present","event_type_equals:incident_candidate","payload_has:category_security","payload_has:within_time_window_10m","payload_has:within_geo_radius_500m"],then:[{kind:"cluster_attach",params:{cluster_bucket:"security",mode:"dedup",reason:"time_geo_category_match"}}]}
+rl{id:"r_cluster_new_ops_time",when:["event_type_present","event_type_equals:incident_candidate","payload_has:category_ops","payload_has:outside_time_window_10m"],then:[{kind:"cluster_new",params:{cluster_bucket:"ops",mode:"new",reason:"time_window_miss"}}]}
+rl{id:"r_cluster_new_security_geo",when:["event_type_present","event_type_equals:incident_candidate","payload_has:category_security","payload_has:outside_geo_radius_500m"],then:[{kind:"cluster_new",params:{cluster_bucket:"security",mode:"new",reason:"geo_radius_miss"}}]}

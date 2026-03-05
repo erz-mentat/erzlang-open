@@ -1,0 +1,1 @@
+{"code":"ERZ_PARSE_SYNTAX","stage":"parse","message":"Expected '}' to close statement at position 11","span":{"position":11},"hint":"Check compact syntax near the reported position.","details":{"error_type":"CompactParseError","command":"parse"}}

@@ -1,0 +1,8 @@
+erz{v:1}
+ev{type:"alert",payload:{category:"A",cluster_ref:"cl-77",confidence:81,severity:72}}
+rl{id:"r-route",when:["event_type_present","payload_has:severity","payload_has:confidence"],then:[{kind:"route",params:{priority:"high",target:"ops_dispatch"}}]}
+rl{id:"r-audit",when:["event_type_present"],then:[{kind:"audit",params:{stream:"trace"}}]}
+ac{kind:"ticket",params:{dedupe_key:"evt-101",system:"incident_hub"}}
+rf{id:"msg_ops",v:"Alarm erkannt; bitte Lage prüfen."}
+pl{rt:{min_confidence:75,min_severity:65}}
+tr{rule_id:"r-route",matched_clauses:["event_type_present","payload_has:severity","payload_has:confidence"],timestamp:"2026-02-24T15:01:00Z"}

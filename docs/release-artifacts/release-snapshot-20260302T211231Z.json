@@ -1,0 +1,107 @@
+{
+  "meta": {
+    "snapshot_generated_at_utc": "2026-03-02T21:12:31.642821+00:00",
+    "benchmark_generated_at_utc": "2026-03-02T21:12:22.661179+00:00",
+    "benchmark_result_path": "bench/token-harness/results/latest.json",
+    "full_lane_entrypoint": "./scripts/check.sh",
+    "source_of_truth_rule": "bench/token-harness/results/latest.json is repo-pinned for non-mutating gate runs; docs/release-artifacts/latest.json is the freshness source-of-truth."
+  },
+  "quality_gate_snapshot": {
+    "gate": "B4 benchmark harness",
+    "baseline_tokens": 1389,
+    "erz_tokens": 709,
+    "token_saving_pct": 48.96,
+    "target_pct": 25.0,
+    "target_met": true,
+    "pair_count": 10,
+    "pair_floor": 10,
+    "pair_floor_met": true,
+    "calibration_pair_count": 2,
+    "calibration_pair_floor": 2,
+    "calibration_pair_floor_met": true
+  },
+  "benchmark_summary": {
+    "pair_count": 10,
+    "totals": {
+      "baseline_tokens": 1389,
+      "erz_tokens": 709,
+      "tokens_saved": 680,
+      "token_saving_pct": 48.96,
+      "baseline_bytes": 5541,
+      "erz_bytes": 2821,
+      "bytes_saved": 2720,
+      "bytes_saving_pct": 49.09
+    },
+    "averages": {
+      "token_saving_pct": 46.4,
+      "bytes_saving_pct": 46.55
+    },
+    "medians": {
+      "token_saving_pct": 46.05,
+      "bytes_saving_pct": 45.98
+    },
+    "fixture_classes": {
+      "calibration:overconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 816,
+        "erz_bytes": 280,
+        "bytes_saved": 536,
+        "bytes_saving_pct": 65.69
+      },
+      "calibration:underconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 815,
+        "erz_bytes": 278,
+        "bytes_saved": 537,
+        "bytes_saving_pct": 65.89
+      },
+      "core": {
+        "pair_count": 8,
+        "baseline_tokens": 981,
+        "erz_tokens": 569,
+        "tokens_saved": 412,
+        "token_saving_pct": 42.0,
+        "baseline_bytes": 3910,
+        "erz_bytes": 2263,
+        "bytes_saved": 1647,
+        "bytes_saving_pct": 42.12
+      }
+    },
+    "calibration_classes": {
+      "overconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 816,
+        "erz_bytes": 280,
+        "bytes_saved": 536,
+        "bytes_saving_pct": 65.69
+      },
+      "underconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 815,
+        "erz_bytes": 278,
+        "bytes_saved": 537,
+        "bytes_saving_pct": 65.89
+      }
+    },
+    "target": {
+      "token_saving_pct": 25.0,
+      "met": true
+    }
+  }
+}

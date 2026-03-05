@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://erzlang.dev/schema/ir.v0.1.schema.json",
+  "title": "erzlang IR v0.1 (minimal objects)",
+  "description": "Canonical minimal IR contracts for event, rule, action, trace, and calibration objects.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/event"
+    },
+    {
+      "$ref": "#/$defs/rule"
+    },
+    {
+      "$ref": "#/$defs/action"
+    },
+    {
+      "$ref": "#/$defs/trace"
+    },
+    {
+      "$ref": "#/$defs/calibration_config"
+    },
+    {
+      "$ref": "#/$defs/calibration_bundle"
+    }
+  ],
+  "$defs": {
+    "value": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/map"
+        },
+        {
+          "$ref": "#/$defs/list"
+        }
+      ]
+    },
+    "map": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/value"
+      }
+    },
+    "list": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/value"
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/map"
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "type": "ingest",
+          "payload": {
+            "source": "sensor-a",
+            "severity": 2
+          }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/$defs/map"
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "kind": "act",
+          "params": {
+            "rule_id": "r1"
+          }
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "required": [
+        "id",
+        "when",
+        "then"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "then": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "id": "r1",
+          "when": [
+            "event_type_present"
+          ],
+          "then": [
+            {
+              "kind": "act",
+              "params": {
+                "rule_id": "r1"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "trace": {
+      "type": "object",
+      "required": [
+        "rule_id",
+        "matched_clauses"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable id of the fired rule that produced this trace step."
+        },
+        "matched_clauses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "Clauses that matched for the fired rule, preserving clause declaration order."
+        },
+        "score": {
+          "type": "number",
+          "description": "Deterministic score emitted by the evaluator when enabled."
+        },
+        "calibrated_probability": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Optional calibration-mapped probability emitted when evaluator calibration is configured."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "Optional caller-provided timestamp/now context copied into trace."
+        },
+        "seed": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "description": "Optional caller-provided deterministic seed copied into trace."
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "rule_id": "r1",
+          "matched_clauses": [
+            "event_type_present"
+          ],
+          "score": 1.0
+        },
+        {
+          "rule_id": "r2",
+          "matched_clauses": [
+            "event_type_present",
+            "payload_has:severity"
+          ],
+          "score": 1.0,
+          "calibrated_probability": 0.92,
+          "timestamp": "2026-02-25T14:00:00Z",
+          "seed": "seed-7"
+        }
+      ]
+    },
+    "calibration_point": {
+      "type": "object",
+      "required": [
+        "raw_score",
+        "probability"
+      ],
+      "properties": {
+        "raw_score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Uncalibrated score knot in [0.0, 1.0]."
+        },
+        "probability": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Mapped probability at this knot in [0.0, 1.0]."
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "raw_score": 0.0,
+          "probability": 0.05
+        },
+        {
+          "raw_score": 0.6,
+          "probability": 0.7
+        },
+        {
+          "raw_score": 1.0,
+          "probability": 0.95
+        }
+      ]
+    },
+    "calibration_config": {
+      "type": "object",
+      "required": [
+        "method",
+        "points"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "piecewise_linear"
+          ],
+          "description": "Calibration algorithm identifier. v0.1 supports only piecewise-linear mapping."
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/calibration_point"
+          },
+          "minItems": 2,
+          "description": "Piecewise-linear knots sorted by raw_score for deterministic interpolation."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional human-readable note for this calibration config."
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "method": "piecewise_linear",
+          "points": [
+            {
+              "raw_score": 0.0,
+              "probability": 0.05
+            },
+            {
+              "raw_score": 0.6,
+              "probability": 0.7
+            },
+            {
+              "raw_score": 1.0,
+              "probability": 0.95
+            }
+          ]
+        }
+      ]
+    },
+    "calibration_bundle": {
+      "type": "object",
+      "required": [
+        "id",
+        "configs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier for this calibration bundle."
+        },
+        "configs": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/calibration_config"
+          },
+          "description": "Named calibration configs keyed by selector/profile name."
+        },
+        "default_config": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional fallback config key used when no explicit selector is provided."
+        },
+        "metadata": {
+          "$ref": "#/$defs/map",
+          "description": "Optional JSON-like metadata for provenance/audit."
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "id": "severity-confidence-v1",
+          "default_config": "default",
+          "configs": {
+            "default": {
+              "method": "piecewise_linear",
+              "points": [
+                {
+                  "raw_score": 0.0,
+                  "probability": 0.05
+                },
+                {
+                  "raw_score": 0.6,
+                  "probability": 0.7
+                },
+                {
+                  "raw_score": 1.0,
+                  "probability": 0.95
+                }
+              ]
+            },
+            "high_risk": {
+              "method": "piecewise_linear",
+              "points": [
+                {
+                  "raw_score": 0.0,
+                  "probability": 0.1
+                },
+                {
+                  "raw_score": 0.5,
+                  "probability": 0.8
+                },
+                {
+                  "raw_score": 1.0,
+                  "probability": 0.98
+                }
+              ],
+              "description": "Tighter mapping for high-risk domains."
+            }
+          },
+          "metadata": {
+            "source": "offline-fit-2026-02-25",
+            "owner": "risk-team"
+          }
+        }
+      ]
+    }
+  }
+}

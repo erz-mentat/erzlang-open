@@ -1,0 +1,228 @@
+{
+  "pack_id": "sprint-7-pack-03-alert-routing",
+  "title": "Alert routing by severity/confidence buckets",
+  "calibration_note": "Runtime clauses stay structural. Severity/confidence thresholds must be pre-bucketed upstream (e.g., sev_critical/conf_high). Calibration only enriches trace probabilities.",
+  "rules": [
+    {
+      "id": "r01_page_primary",
+      "when": [
+        "event_type_present",
+        "event_type_equals:alert",
+        "payload_has:sev_critical",
+        "payload_has:conf_high"
+      ],
+      "then": [
+        {
+          "kind": "route",
+          "params": {
+            "priority": "p1",
+            "reason": "critical+high_confidence",
+            "target": "oncall_primary",
+            "via": "pager"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r02_manual_review",
+      "when": [
+        "event_type_present",
+        "event_type_equals:alert",
+        "payload_has:sev_critical",
+        "payload_has:conf_low"
+      ],
+      "then": [
+        {
+          "kind": "route",
+          "params": {
+            "priority": "p1",
+            "reason": "critical+low_confidence",
+            "target": "safety_triage",
+            "via": "human_review"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r03_ops_digest",
+      "when": [
+        "event_type_present",
+        "event_type_equals:alert",
+        "payload_has:sev_warning",
+        "payload_has:conf_high"
+      ],
+      "then": [
+        {
+          "kind": "route",
+          "params": {
+            "priority": "p2",
+            "reason": "warning+high_confidence",
+            "target": "ops_digest",
+            "via": "queue"
+          }
+        }
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "critical_high_conf",
+      "event": {
+        "type": "alert",
+        "payload": {
+          "alert_id": "A-100",
+          "confidence": 0.93,
+          "conf_high": true,
+          "seed": "fixture-critical-high",
+          "severity": 0.97,
+          "sev_critical": true,
+          "timestamp": "2026-02-25T17:00:00Z"
+        }
+      },
+      "calibration": {
+        "points": [
+          {
+            "raw_score": 0.0,
+            "probability": 0.08
+          },
+          {
+            "raw_score": 1.0,
+            "probability": 0.98
+          }
+        ]
+      },
+      "expected_actions": [
+        {
+          "kind": "route",
+          "params": {
+            "priority": "p1",
+            "reason": "critical+high_confidence",
+            "target": "oncall_primary",
+            "via": "pager"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r01_page_primary",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:alert",
+            "payload_has:sev_critical",
+            "payload_has:conf_high"
+          ],
+          "score": 1.0,
+          "calibrated_probability": 0.98,
+          "timestamp": "2026-02-25T17:00:00Z",
+          "seed": "fixture-critical-high"
+        }
+      ]
+    },
+    {
+      "id": "critical_low_conf",
+      "event": {
+        "type": "alert",
+        "payload": {
+          "alert_id": "A-101",
+          "confidence": 0.48,
+          "conf_low": true,
+          "seed": "fixture-critical-low",
+          "severity": 0.96,
+          "sev_critical": true,
+          "timestamp": "2026-02-25T17:05:00Z"
+        }
+      },
+      "calibration": {
+        "points": [
+          {
+            "raw_score": 0.0,
+            "probability": 0.18
+          },
+          {
+            "raw_score": 1.0,
+            "probability": 0.76
+          }
+        ]
+      },
+      "expected_actions": [
+        {
+          "kind": "route",
+          "params": {
+            "priority": "p1",
+            "reason": "critical+low_confidence",
+            "target": "safety_triage",
+            "via": "human_review"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r02_manual_review",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:alert",
+            "payload_has:sev_critical",
+            "payload_has:conf_low"
+          ],
+          "score": 1.0,
+          "calibrated_probability": 0.76,
+          "timestamp": "2026-02-25T17:05:00Z",
+          "seed": "fixture-critical-low"
+        }
+      ]
+    },
+    {
+      "id": "warning_high_conf",
+      "event": {
+        "type": "alert",
+        "payload": {
+          "alert_id": "A-102",
+          "confidence": 0.87,
+          "conf_high": true,
+          "seed": "fixture-warning-high",
+          "severity": 0.67,
+          "sev_warning": true,
+          "timestamp": "2026-02-25T17:10:00Z"
+        }
+      },
+      "calibration": {
+        "points": [
+          {
+            "raw_score": 0.0,
+            "probability": 0.11
+          },
+          {
+            "raw_score": 1.0,
+            "probability": 0.88
+          }
+        ]
+      },
+      "expected_actions": [
+        {
+          "kind": "route",
+          "params": {
+            "priority": "p2",
+            "reason": "warning+high_confidence",
+            "target": "ops_digest",
+            "via": "queue"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r03_ops_digest",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:alert",
+            "payload_has:sev_warning",
+            "payload_has:conf_high"
+          ],
+          "score": 1.0,
+          "calibrated_probability": 0.88,
+          "timestamp": "2026-02-25T17:10:00Z",
+          "seed": "fixture-warning-high"
+        }
+      ]
+    }
+  ]
+}

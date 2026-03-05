@@ -1,0 +1,14 @@
+[
+  {
+    "rule_id": "r_normalize_publish",
+    "matched_clauses": [
+      "event_type_equals:normalize",
+      "payload_has:normalized_text_ref",
+      "payload_has:entities"
+    ],
+    "score": 1.0,
+    "calibrated_probability": 0.93,
+    "timestamp": "2026-03-01T10:00:02Z",
+    "seed": "seed-pack-1"
+  }
+]

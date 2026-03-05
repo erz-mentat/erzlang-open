@@ -1,0 +1,13 @@
+[project]
+name = "erzlang"
+version = "0.1.0a0"
+description = "Deterministic agent DSL runtime with canonical IR and trace"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+erz = "cli.main:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
