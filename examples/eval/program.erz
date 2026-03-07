@@ -1,0 +1,3 @@
+erz{v:1}
+rule{id:"route_ops",when:["event_type_present","payload_has:severity"],then:[{kind:"notify",params:{channel:"ops",severity_ref:"@sev_label"}}]}
+rf{id:"sev_label",v:"high"}

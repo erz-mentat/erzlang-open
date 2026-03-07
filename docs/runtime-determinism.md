@@ -2,6 +2,60 @@
 
 `runtime.eval.eval_policies` is the deterministic, pure-evaluation Rule Engine for the current v0 runtime subset.
 
+## Operator quickstart (eval lane)
+
+Fast path for operators:
+
+1. Program file wählen, z. B. `examples/eval/program.erz`.
+2. Event-JSON wählen, z. B. `examples/eval/event-ok.json`.
+3. `erz eval <program> --input <event>` ausführen.
+4. `actions` für Output lesen, `trace` für Nachvollziehbarkeit prüfen.
+5. Optional für CI-Logs: `--summary --summary-policy` nutzen, dann ist `policy=<...> exit=<0|1>` immer dabei.
+6. Optional für Replay-Lanes: `--batch <dir>` nutzen, dann werden alle `*.json` deterministisch nach Dateiname aggregiert.
+7. Optional für Batch-Filter: `--include <glob>` und/oder `--exclude <glob>` nutzen (include vor exclude, Match über Dateiname).
+8. Optional für CI-Artefakte im Batch-Lane: `--batch-output <dir>` nutzen, dann entstehen pro Event Envelope-Dateien plus `summary.json`.
+9. Optional für schmale Triage-Artefakte: `--batch-output-errors-only` ergänzen, dann werden nur Fehler-/No-Action-Events persistiert.
+10. Optional für Integritätsprüfungen ohne Nachrechnen: `--batch-output-manifest` ergänzen, dann enthält `summary.json` ein deterministisches `artifact_sha256`-Mapping für geschriebene Event-Artefakte.
+11. Optional für große Runs: `--batch-output-layout by-status` ergänzen, dann landen Event-Artefakte unter `ok/`, `no-action/` oder `error/`.
+12. Optional für Automation-Traceability im Single-Event-Lane: `--meta` aktivieren, optional `--generated-at <timestamp>` setzen.
+
+```bash
+erz eval examples/eval/program.erz --input examples/eval/event-ok.json
+erz eval examples/eval/program.erz --input examples/eval/event-ok.json --summary --summary-policy
+erz eval examples/eval/program.erz --batch examples/eval/batch
+erz eval examples/eval/program.erz --batch examples/eval/batch --include "*ok*.json"
+erz eval examples/eval/program.erz --batch examples/eval/batch --batch-output /tmp/eval-batch-artifacts --batch-output-errors-only
+erz eval examples/eval/program.erz --batch examples/eval/batch --batch-output /tmp/eval-batch-artifacts --batch-output-manifest --batch-output-layout by-status
+erz eval examples/eval/program.erz --input examples/eval/event-ok.json --meta
+erz eval examples/eval/program.erz --input examples/eval/event-ok.json --meta --generated-at 2026-03-06T18:30:00Z
+```
+
+Expected JSON shape:
+
+```json
+{
+  "actions": ["..."],
+  "trace": ["..."]
+}
+```
+
+Runtime contract failure shape (stable):
+
+```json
+{
+  "actions": [],
+  "trace": [],
+  "error": {
+    "code": "ERZ_RUNTIME_CONTRACT",
+    "stage": "runtime",
+    "details": {
+      "error_type": "TypeError",
+      "command": "eval"
+    }
+  }
+}
+```
+
 ## Guarantees
 
 1. **Pure evaluation / no side effects**
