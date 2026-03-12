@@ -16,7 +16,7 @@ What was revalidated in release-close pass:
 Non-blocking follow-ups (post-ship, not release blockers):
 1. ✅ Replaced stale benchmark metadata timestamp flow with repo-pinned benchmark payload + release-artifact freshness source-of-truth.
 2. ✅ Added one-command release evidence exporter: `python3 scripts/release_snapshot.py`.
-3. ✅ Compacted repetitive canary narrative in `docs/quality-gates.md` without changing gate contracts.
+3. ✅ Kept release evidence explicit instead of hiding it behind opaque automation.
 4. Recommended post-pass release flow remains opt-in: `./scripts/check.sh && python3 scripts/release_snapshot.py` (explicit export wrapper, no default hook inside `scripts/check.sh`).
 
 ---

@@ -1,0 +1,1 @@
+{"actions":[{"kind":"route","params":{"reason":"sized_payload_match","target":"cardinality_lane"}}],"trace":[{"rule_id":"route_entity_batch","matched_clauses":["event_type_present","event_type_equals:normalize","payload_path_len_gte:entities=2","payload_path_len_gt:message.summary=10","payload_path_len_lte:routing.channels=2"],"score":1.0}]}

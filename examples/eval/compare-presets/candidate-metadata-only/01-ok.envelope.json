@@ -1,0 +1,1 @@
+{"event":"01-ok.json","actions":[{"kind":"notify","params":{"channel":"ops","severity_ref":"@sev_label"}}],"trace":[{"rule_id":"route_ops","matched_clauses":["event_type_present","payload_has:severity"],"score":1.0}]}

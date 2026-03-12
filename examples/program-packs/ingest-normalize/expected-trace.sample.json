@@ -3,8 +3,8 @@
     "rule_id": "r_normalize_publish",
     "matched_clauses": [
       "event_type_equals:normalize",
-      "payload_has:normalized_text_ref",
-      "payload_has:entities"
+      "payload_path_startswith:normalized_text=Verkehrsunfall",
+      "payload_path_len_gte:entities=1"
     ],
     "score": 1.0,
     "calibrated_probability": 0.93,

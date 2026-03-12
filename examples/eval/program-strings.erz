@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_string_signal",when:["event_type_present","event_type_equals:normalize","payload_path_startswith:routing.service=svc-","payload_path_contains:message.summary=Spandau","payload_path_contains:entities.0.value=A100"],then:[{kind:"route",params:{target:"string_lane",reason:"nested_string_match"}}]}

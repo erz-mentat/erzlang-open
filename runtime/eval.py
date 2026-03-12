@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+import json
 import math
+import re
 from typing import Any, Iterable, Mapping, NotRequired, TypedDict
 
 from ir.refs import RefPolicyError, canonicalize_ref_bindings, ensure_ref_literals_resolved, normalize_ref_literal
@@ -41,13 +43,17 @@ TRACE_OPTIONAL_FIELDS: tuple[str, ...] = (
     "seed",
 )
 TRACE_ALLOWED_FIELDS: set[str] = set(TRACE_REQUIRED_FIELDS) | set(TRACE_OPTIONAL_FIELDS)
+_INTEGER_LITERAL_RE = re.compile(r"-?(?:0|[1-9]\d*)\Z")
+_FLOAT_LITERAL_RE = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+|[eE][+-]?\d+|\.\d+[eE][+-]?\d+)\Z")
+_MISSING_PAYLOAD_PATH = object()
 
 
 @dataclass(frozen=True)
 class _Clause:
     text: str
     kind: str
-    value: str | None = None
+    value: Any = None
+    path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -235,6 +241,89 @@ def _parse_clause(clause: str) -> _Clause:
             raise TypeError("clause 'payload_has' requires a non-empty top-level key")
         return _Clause(text=clause, kind="payload_has", value=key)
 
+    if clause.startswith("payload_path_exists:"):
+        raw_path = clause.partition(":")[2]
+        path = _parse_payload_path(raw_path, operator="payload_path_exists")
+        return _Clause(text=clause, kind="payload_path_exists", path=path)
+
+    if clause.startswith("payload_path_equals:"):
+        spec = clause.partition(":")[2]
+        raw_path, separator, raw_value = spec.partition("=")
+        if not separator or not raw_value:
+            raise TypeError(
+                "clause 'payload_path_equals' requires a non-empty '<path>=<value>' pair"
+            )
+        path = _parse_payload_path(raw_path, operator="payload_path_equals")
+        return _Clause(
+            text=clause,
+            kind="payload_path_equals",
+            path=path,
+            value=_parse_clause_scalar(raw_value),
+        )
+
+    if clause.startswith("payload_path_in:"):
+        spec = clause.partition(":")[2]
+        raw_path, separator, raw_members = spec.partition("=")
+        if not separator or not raw_members:
+            raise TypeError(
+                "clause 'payload_path_in' requires a non-empty '<path>=<csv-or-json-list>' pair"
+            )
+        path = _parse_payload_path(raw_path, operator="payload_path_in")
+        return _Clause(
+            text=clause,
+            kind="payload_path_in",
+            path=path,
+            value=_parse_clause_members(raw_members, operator="payload_path_in"),
+        )
+
+    for operator in ("payload_path_startswith", "payload_path_contains"):
+        if clause.startswith(f"{operator}:"):
+            spec = clause.partition(":")[2]
+            raw_path, separator, raw_value = spec.partition("=")
+            if not separator or not raw_value:
+                raise TypeError(
+                    f"clause '{operator}' requires a non-empty '<path>=<string>' pair"
+                )
+            path = _parse_payload_path(raw_path, operator=operator)
+            return _Clause(text=clause, kind=operator, path=path, value=raw_value)
+
+    for operator in (
+        "payload_path_len_gt",
+        "payload_path_len_gte",
+        "payload_path_len_lt",
+        "payload_path_len_lte",
+    ):
+        if clause.startswith(f"{operator}:"):
+            spec = clause.partition(":")[2]
+            raw_path, separator, raw_value = spec.partition("=")
+            if not separator or not raw_value:
+                raise TypeError(
+                    f"clause '{operator}' requires a non-empty '<path>=<integer>' pair"
+                )
+            path = _parse_payload_path(raw_path, operator=operator)
+            return _Clause(
+                text=clause,
+                kind=operator,
+                path=path,
+                value=_parse_clause_length(raw_value, operator=operator),
+            )
+
+    for operator in ("payload_path_gt", "payload_path_gte", "payload_path_lt", "payload_path_lte"):
+        if clause.startswith(f"{operator}:"):
+            spec = clause.partition(":")[2]
+            raw_path, separator, raw_value = spec.partition("=")
+            if not separator or not raw_value:
+                raise TypeError(
+                    f"clause '{operator}' requires a non-empty '<path>=<number>' pair"
+                )
+            path = _parse_payload_path(raw_path, operator=operator)
+            return _Clause(
+                text=clause,
+                kind=operator,
+                path=path,
+                value=_parse_clause_number(raw_value, operator=operator),
+            )
+
     if _looks_like_expression_clause(clause):
         raise TypeError(
             "rule.when supports only simple AND clause lists; expression syntax is not supported"
@@ -242,7 +331,7 @@ def _parse_clause(clause: str) -> _Clause:
 
     raise TypeError(
         "unsupported clause "
-        f"'{clause}'. Supported clauses: event_type_present, event_type_equals:<value>, payload_has:<key>"
+        f"'{clause}'. Supported clauses: event_type_present, event_type_equals:<value>, payload_has:<key>, payload_path_exists:<path>, payload_path_equals:<path>=<value>, payload_path_in:<path>=<csv-or-json-list>, payload_path_startswith:<path>=<string>, payload_path_contains:<path>=<string>, payload_path_len_gt:<path>=<integer>, payload_path_len_gte:<path>=<integer>, payload_path_len_lt:<path>=<integer>, payload_path_len_lte:<path>=<integer>, payload_path_gt:<path>=<number>, payload_path_gte:<path>=<number>, payload_path_lt:<path>=<number>, payload_path_lte:<path>=<number>"
     )
 
 
@@ -256,6 +345,156 @@ def _looks_like_expression_clause(clause: str) -> bool:
             return True
 
     return False
+
+
+def _parse_payload_path(raw_path: str, *, operator: str) -> tuple[str, ...]:
+    if not raw_path:
+        raise TypeError(f"clause '{operator}' requires a non-empty payload path")
+
+    segments = tuple(segment for segment in raw_path.split("."))
+    if not segments or any(segment == "" for segment in segments):
+        raise TypeError(f"clause '{operator}' requires a dot-separated payload path without empty segments")
+
+    return segments
+
+
+def _parse_clause_scalar(raw_value: str) -> Any:
+    lowered = raw_value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered == "null":
+        return None
+
+    if _INTEGER_LITERAL_RE.fullmatch(raw_value):
+        return int(raw_value)
+
+    if _FLOAT_LITERAL_RE.fullmatch(raw_value):
+        numeric = float(raw_value)
+        if math.isfinite(numeric):
+            return numeric
+
+    return raw_value
+
+
+def _parse_clause_members(raw_members: str, *, operator: str) -> tuple[Any, ...]:
+    spec = raw_members.strip()
+    if not spec:
+        raise TypeError(f"clause '{operator}' requires at least one member")
+
+    if spec[0] in "[{":
+        try:
+            parsed = json.loads(spec)
+        except json.JSONDecodeError as exc:
+            raise TypeError(
+                f"clause '{operator}' requires a valid JSON array or comma-separated scalar list"
+            ) from exc
+        if not isinstance(parsed, list):
+            raise TypeError(f"clause '{operator}' JSON form must decode to an array")
+        if len(parsed) == 0:
+            raise TypeError(f"clause '{operator}' requires at least one member")
+        return tuple(_normalize_clause_member_value(value, operator=operator) for value in parsed)
+
+    members: list[Any] = []
+    for raw_member in spec.split(","):
+        member = raw_member.strip()
+        if not member:
+            raise TypeError(
+                f"clause '{operator}' comma-separated form requires non-empty members"
+            )
+        members.append(_parse_clause_scalar(member))
+
+    return tuple(members)
+
+
+def _parse_clause_number(raw_value: str, *, operator: str) -> int | float:
+    parsed = _parse_clause_scalar(raw_value.strip())
+    if isinstance(parsed, bool) or not isinstance(parsed, (int, float)):
+        raise TypeError(f"clause '{operator}' requires a finite numeric '<path>=<number>' pair")
+    numeric = float(parsed)
+    if not math.isfinite(numeric):
+        raise TypeError(f"clause '{operator}' requires a finite numeric '<path>=<number>' pair")
+    return parsed
+
+
+def _parse_clause_length(raw_value: str, *, operator: str) -> int:
+    parsed = _parse_clause_scalar(raw_value.strip())
+    if isinstance(parsed, bool) or not isinstance(parsed, int) or parsed < 0:
+        raise TypeError(
+            f"clause '{operator}' requires a non-negative integer '<path>=<integer>' pair"
+        )
+    return parsed
+
+
+def _normalize_clause_member_value(value: Any, *, operator: str) -> Any:
+    if value is None or isinstance(value, (str, bool)):
+        return value
+
+    if isinstance(value, int):
+        return value
+
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise TypeError(f"clause '{operator}' members must be finite JSON scalars")
+        return value
+
+    raise TypeError(f"clause '{operator}' members must be JSON scalars (string|number|bool|null)")
+
+
+def _resolve_payload_path(payload: Mapping[str, Any], path: tuple[str, ...]) -> Any:
+    current: Any = payload
+
+    for segment in path:
+        if isinstance(current, Mapping):
+            if segment not in current:
+                return _MISSING_PAYLOAD_PATH
+            current = current[segment]
+            continue
+
+        if isinstance(current, list):
+            if not segment.isdigit():
+                return _MISSING_PAYLOAD_PATH
+            index = int(segment)
+            if index >= len(current):
+                return _MISSING_PAYLOAD_PATH
+            current = current[index]
+            continue
+
+        return _MISSING_PAYLOAD_PATH
+
+    return current
+
+
+def _payload_values_equal(actual: Any, expected: Any) -> bool:
+    if isinstance(actual, bool) or isinstance(expected, bool):
+        return isinstance(actual, bool) and isinstance(expected, bool) and actual is expected
+
+    if actual is None or expected is None:
+        return actual is None and expected is None
+
+    if isinstance(actual, (int, float)) and not isinstance(actual, bool):
+        if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+            return float(actual) == float(expected)
+
+    return actual == expected
+
+
+def _coerce_payload_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return None
+
+    return numeric
+
+
+def _coerce_payload_length(value: Any) -> int | None:
+    if isinstance(value, (str, list, Mapping)):
+        return len(value)
+    return None
 
 
 def _normalize_then(raw_then: Any, *, rule_id: str) -> tuple[ActionRecord, ...]:
@@ -372,6 +611,70 @@ def _evaluate_clause(clause: _Clause, *, event_type: str | None, payload: Mappin
     if clause.kind == "payload_has":
         key = clause.value
         return key is not None and key in payload
+
+    if clause.kind == "payload_path_exists":
+        return _resolve_payload_path(payload, clause.path) is not _MISSING_PAYLOAD_PATH
+
+    if clause.kind == "payload_path_equals":
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH:
+            return False
+        return _payload_values_equal(actual, clause.value)
+
+    if clause.kind == "payload_path_in":
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH:
+            return False
+        return any(_payload_values_equal(actual, expected) for expected in clause.value)
+
+    if clause.kind in {"payload_path_startswith", "payload_path_contains"}:
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH or not isinstance(actual, str):
+            return False
+        if clause.kind == "payload_path_startswith":
+            return actual.startswith(clause.value)
+        return clause.value in actual
+
+    if clause.kind in {
+        "payload_path_len_gt",
+        "payload_path_len_gte",
+        "payload_path_len_lt",
+        "payload_path_len_lte",
+    }:
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH:
+            return False
+
+        actual_length = _coerce_payload_length(actual)
+        if actual_length is None:
+            return False
+
+        expected_length = clause.value
+        if clause.kind == "payload_path_len_gt":
+            return actual_length > expected_length
+        if clause.kind == "payload_path_len_gte":
+            return actual_length >= expected_length
+        if clause.kind == "payload_path_len_lt":
+            return actual_length < expected_length
+        return actual_length <= expected_length
+
+    if clause.kind in {"payload_path_gt", "payload_path_gte", "payload_path_lt", "payload_path_lte"}:
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH:
+            return False
+
+        actual_number = _coerce_payload_number(actual)
+        if actual_number is None:
+            return False
+
+        expected_number = float(clause.value)
+        if clause.kind == "payload_path_gt":
+            return actual_number > expected_number
+        if clause.kind == "payload_path_gte":
+            return actual_number >= expected_number
+        if clause.kind == "payload_path_lt":
+            return actual_number < expected_number
+        return actual_number <= expected_number
 
     raise RuntimeError(f"Unknown normalized clause kind '{clause.kind}'")
 

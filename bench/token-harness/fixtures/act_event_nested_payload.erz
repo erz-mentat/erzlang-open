@@ -1,0 +1,4 @@
+erz{v:0.1}
+ev{id:"evt_703",type:act,payload:{decisionRef:{ref_id:"dec_703"},actions:[{type:notify_channel,params:{target:ops_triage,templateRef:{ref:"tpl_triage"}}},{type:create_ticket,params:{system:incident_hub,prio:medium,dedupeKey:"evt_500"}}],deadlineSec:180}}
+dc{id:"dec_703",score:0.71,reasonCodes:[resource_pressure,multi_signal]}
+rf{id:"@tpl_triage",v:"Bitte Lage prüfen und innerhalb von 3 Minuten antworten."}

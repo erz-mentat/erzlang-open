@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_security_hot_alert",when:["event_type_present","event_type_equals:alert","payload_path_exists:alert.id","payload_path_equals:routing.severity_bucket=critical","payload_path_in:routing.team=[\"ops\",\"security\"]"],then:[{kind:"route",params:{target:"security_ops",reason:"critical_nested_match"}}]}

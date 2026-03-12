@@ -1,0 +1,26 @@
+{
+  "event": {
+    "id": "evt_202",
+    "type": "normalize_event",
+    "source": "voice_note",
+    "ingest_ref": "@evt_001",
+    "language": "de",
+    "timezone": "Europe/Berlin",
+    "entities": [
+      {
+        "kind": "location",
+        "value": "A100 Ausfahrt Spandau",
+        "confidence": 0.91
+      },
+      {
+        "kind": "vehicle_count",
+        "value": "2",
+        "confidence": 0.88
+      }
+    ],
+    "normalized_text_ref": "@txt_norm_202"
+  },
+  "refs": {
+    "txt_norm_202": "Verkehrsunfall auf der A100, Ausfahrt Spandau. Zwei Fahrzeuge beteiligt, keine sichtbaren Verletzten."
+  }
+}

@@ -28,9 +28,9 @@
 
 ## v0.1 release-close checklist (frozen 2026-03-02)
 
-- [x] Quality gates rerun and passed via `./scripts/check.sh` (see `docs/quality-gates.md`, section "v0.1 release-close benchmark snapshot").
+- [x] Quality gates rerun and passed via `./scripts/check.sh`.
 - [x] Token benchmark threshold reconfirmed with active corpus (`48.96%` vs target `>= 25%`).
-- [x] Compatibility anchor references remain in sync across `docs/migrations.md` and `docs/quality-gates.md`.
+- [x] Compatibility anchor references remain in sync across the public docs surface (`docs/migrations.md`, `CHANGELOG.md`, release notes).
 - [x] Active profile set frozen for v0.1 ship scope: `Sprint-5 calibration additive profile`, `Sprint-6 compatibility/ref-hardening profile`.
-- [x] Ship-ready status recorded for David (see `docs/review-sprint1.md`, section "v0.1 ship-ready summary").
+- [x] Ship-ready status recorded in `docs/review-sprint1.md` (section "v0.1 ship-ready summary").
 - [x] Remaining items limited to non-blocking post-ship follow-ups.

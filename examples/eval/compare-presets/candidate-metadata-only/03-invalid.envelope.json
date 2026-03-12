@@ -1,0 +1,1 @@
+{"event":"03-invalid.json","actions":[],"trace":[],"error":{"code":"ERZ_RUNTIME_CONTRACT","stage":"runtime","message":"event.payload must be a mapping when present","span":null,"hint":"Runtime input or trace shape violated the runtime contract.","details":{"error_type":"TypeError","command":"eval"}}}

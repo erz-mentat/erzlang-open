@@ -1,35 +1,39 @@
 # Program Pack: Dedup/Cluster (Sprint-7 #2)
 
-This pack demonstrates a **deterministic dedup/cluster policy** in the current DSL scope.
+This pack demonstrates a deterministic dedup/cluster policy on canonical runtime events.
 
 ## Files
 
 - `policy.erz` — compact policy program (rules only).
-- `baseline-mapping.json` — deterministic baseline mapping + sample inputs + expected runtime outputs.
+- `baseline.json` — canonical event fixtures, runtime contract, and expected runtime outputs.
 
-## Deterministic rule encoding in current DSL scope
+## Deterministic rule encoding with payload paths
 
-Current runtime clause support is intentionally narrow:
+Current runtime clause support now includes nested payload path predicates in addition to top-level key checks:
 
 - `event_type_present`
 - `event_type_equals:<value>`
 - `payload_has:<top_level_key>`
+- `payload_path_exists:<dot.path>`
+- `payload_path_equals:<dot.path>=<value>`
+- `payload_path_gt/gte/lt/lte:<dot.path>=<number>`
 
-So numeric/logical conditions are represented as **derived payload keys**.
+This pack keeps thresholding deterministic while reading the real nested numeric payload fields directly.
 
-- Time window (`<= 10m`) is mapped to `within_time_window_10m` / `outside_time_window_10m`.
-- Geo radius (`<= 500m`) is mapped to `within_geo_radius_500m` / `outside_geo_radius_500m`.
-- Category conditions are mapped to category marker keys such as `category_ops`, `category_security`.
+- Time window attach (`<= 10m`) is `payload_path_lte:window.minutes_since_anchor=10`.
+- Geo radius attach (`<= 500m`) is `payload_path_lte:geo.distance_meters=500`.
+- Time miss (`> 10m`) is `payload_path_gt:window.minutes_since_anchor=10`.
+- Geo miss (`> 500m`) is `payload_path_gt:geo.distance_meters=500`.
+- Category conditions match the real payload field `category = ops | security`.
+- Cluster identity requires `dedupe.key` via `payload_path_exists:dedupe.key`.
 
-Rules then combine those keys via clause-AND semantics.
+The checked-in fixtures are already in runtime input shape under `fixtures[*].event`, so operators and tests no longer carry a separate raw-to-mapped projection lane.
 
 ## Validation
 
-Deterministic expected `actions` + `trace` for sample events are covered by:
+Deterministic expected `actions` + `trace` for sample events are covered in the public slice by runnable fixtures plus `scripts/check.sh`; deeper regression coverage stays in the internal test lane.
 
-- `tests/test_program_pack_dedup_cluster.py`
-
-Sample matrix in `baseline-mapping.json`:
+Sample matrix in `baseline.json`:
 
 - `attach_ops` -> `cluster_attach`
 - `new_security_geo_miss` -> `cluster_new`

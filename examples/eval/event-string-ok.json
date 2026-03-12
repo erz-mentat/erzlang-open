@@ -1,0 +1,18 @@
+{
+  "type": "normalize",
+  "payload": {
+    "entities": [
+      {
+        "kind": "location",
+        "value": "A100 Ausfahrt Spandau"
+      }
+    ],
+    "message": {
+      "summary": "Unfall A100 Ausfahrt Spandau, zwei Fahrzeuge"
+    },
+    "routing": {
+      "service": "svc-berlin-edge"
+    },
+    "source": "nlp-v1"
+  }
+}

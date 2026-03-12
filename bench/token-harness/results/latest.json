@@ -1,0 +1,207 @@
+{
+  "meta": {
+    "generated_at_utc": "2026-03-09T19:50:36.669992+00:00",
+    "token_counter": "approx:utf8_bytes_div_4"
+  },
+  "pairs": [
+    {
+      "name": "act_event",
+      "baseline_bytes": 665,
+      "erz_bytes": 319,
+      "bytes_saved": 346,
+      "bytes_saving_pct": 52.03,
+      "baseline_tokens": 167,
+      "erz_tokens": 80,
+      "tokens_saved": 87,
+      "token_saving_pct": 52.1
+    },
+    {
+      "name": "act_event_nested_payload",
+      "baseline_bytes": 642,
+      "erz_bytes": 421,
+      "bytes_saved": 221,
+      "bytes_saving_pct": 34.42,
+      "baseline_tokens": 161,
+      "erz_tokens": 106,
+      "tokens_saved": 55,
+      "token_saving_pct": 34.16
+    },
+    {
+      "name": "alert_event",
+      "baseline_bytes": 263,
+      "erz_bytes": 106,
+      "bytes_saved": 157,
+      "bytes_saving_pct": 59.7,
+      "baseline_tokens": 66,
+      "erz_tokens": 27,
+      "tokens_saved": 39,
+      "token_saving_pct": 59.09
+    },
+    {
+      "name": "calibration_overconfident_alert",
+      "baseline_bytes": 816,
+      "erz_bytes": 280,
+      "bytes_saved": 536,
+      "bytes_saving_pct": 65.69,
+      "baseline_tokens": 204,
+      "erz_tokens": 70,
+      "tokens_saved": 134,
+      "token_saving_pct": 65.69
+    },
+    {
+      "name": "calibration_underconfident_alert",
+      "baseline_bytes": 815,
+      "erz_bytes": 278,
+      "bytes_saved": 537,
+      "bytes_saving_pct": 65.89,
+      "baseline_tokens": 204,
+      "erz_tokens": 70,
+      "tokens_saved": 134,
+      "token_saving_pct": 65.69
+    },
+    {
+      "name": "ingest_event",
+      "baseline_bytes": 312,
+      "erz_bytes": 207,
+      "bytes_saved": 105,
+      "bytes_saving_pct": 33.65,
+      "baseline_tokens": 78,
+      "erz_tokens": 52,
+      "tokens_saved": 26,
+      "token_saving_pct": 33.33
+    },
+    {
+      "name": "ingest_event_nested_payload",
+      "baseline_bytes": 321,
+      "erz_bytes": 245,
+      "bytes_saved": 76,
+      "bytes_saving_pct": 23.68,
+      "baseline_tokens": 81,
+      "erz_tokens": 62,
+      "tokens_saved": 19,
+      "token_saving_pct": 23.46
+    },
+    {
+      "name": "ingest_event_rich_payload",
+      "baseline_bytes": 517,
+      "erz_bytes": 283,
+      "bytes_saved": 234,
+      "bytes_saving_pct": 45.26,
+      "baseline_tokens": 130,
+      "erz_tokens": 71,
+      "tokens_saved": 59,
+      "token_saving_pct": 45.38
+    },
+    {
+      "name": "normalize_event",
+      "baseline_bytes": 606,
+      "erz_bytes": 323,
+      "bytes_saved": 283,
+      "bytes_saving_pct": 46.7,
+      "baseline_tokens": 152,
+      "erz_tokens": 81,
+      "tokens_saved": 71,
+      "token_saving_pct": 46.71
+    },
+    {
+      "name": "normalize_event_nested_payload",
+      "baseline_bytes": 584,
+      "erz_bytes": 359,
+      "bytes_saved": 225,
+      "bytes_saving_pct": 38.53,
+      "baseline_tokens": 146,
+      "erz_tokens": 90,
+      "tokens_saved": 56,
+      "token_saving_pct": 38.36
+    }
+  ],
+  "summary": {
+    "pair_count": 10,
+    "totals": {
+      "baseline_tokens": 1389,
+      "erz_tokens": 709,
+      "tokens_saved": 680,
+      "token_saving_pct": 48.96,
+      "baseline_bytes": 5541,
+      "erz_bytes": 2821,
+      "bytes_saved": 2720,
+      "bytes_saving_pct": 49.09
+    },
+    "averages": {
+      "token_saving_pct": 46.4,
+      "bytes_saving_pct": 46.55
+    },
+    "medians": {
+      "token_saving_pct": 46.05,
+      "bytes_saving_pct": 45.98
+    },
+    "fixture_classes": {
+      "calibration:overconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 816,
+        "erz_bytes": 280,
+        "bytes_saved": 536,
+        "bytes_saving_pct": 65.69
+      },
+      "calibration:underconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 815,
+        "erz_bytes": 278,
+        "bytes_saved": 537,
+        "bytes_saving_pct": 65.89
+      },
+      "core": {
+        "pair_count": 8,
+        "baseline_tokens": 981,
+        "erz_tokens": 569,
+        "tokens_saved": 412,
+        "token_saving_pct": 42.0,
+        "baseline_bytes": 3910,
+        "erz_bytes": 2263,
+        "bytes_saved": 1647,
+        "bytes_saving_pct": 42.12
+      }
+    },
+    "calibration_classes": {
+      "overconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 816,
+        "erz_bytes": 280,
+        "bytes_saved": 536,
+        "bytes_saving_pct": 65.69
+      },
+      "underconfident": {
+        "pair_count": 1,
+        "baseline_tokens": 204,
+        "erz_tokens": 70,
+        "tokens_saved": 134,
+        "token_saving_pct": 65.69,
+        "baseline_bytes": 815,
+        "erz_bytes": 278,
+        "bytes_saved": 537,
+        "bytes_saving_pct": 65.89
+      }
+    },
+    "target": {
+      "token_saving_pct": 25.0,
+      "met": true
+    }
+  },
+  "notes": {
+    "method": "Compares compact JSON fixtures against erz compact fixtures with equivalent intent.",
+    "limitation": "Token counts vary by tokenizer; fallback approximation is less precise than tiktoken.",
+    "fixture_classing": "Fixture classes are inferred from filename prefixes (e.g. calibration_<class>_*)."
+  }
+}

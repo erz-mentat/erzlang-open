@@ -1,0 +1,1 @@
+{"type":"normalize","payload":{"entities":[{"kind":"location","value":"A100 Ausfahrt Spandau"}],"message":{"summary":"Dispatch normalize batch ready"},"routing":{"channels":{"ops":"slack","backup":"sms"}}}}

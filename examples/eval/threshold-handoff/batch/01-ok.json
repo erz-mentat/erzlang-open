@@ -1,0 +1,1 @@
+{"type":"incident_candidate","payload":{"dedupe":{"key":"site-17:power"},"geo":{"distance_meters":320},"metrics":{"retries":3},"priority":{"score":0.97},"window":{"minutes_since_anchor":6}}}

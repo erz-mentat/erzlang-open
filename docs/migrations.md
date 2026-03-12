@@ -43,11 +43,12 @@ These anchors are intentionally machine-checked and must stay aligned with runti
 - Active compatibility anchors are frozen for ship:
   - `Sprint-5 calibration additive profile`
   - `Sprint-6 compatibility/ref-hardening profile`
-- Cross-doc gate anchor references are intentionally locked between:
+- Cross-doc compatibility anchors are intentionally locked between:
   - `docs/migrations.md` (this file)
-  - `docs/quality-gates.md` ("Active compatibility profile references")
-- Release-close validation source of truth:
-  - `docs/quality-gates.md` ("v0.1 release-close benchmark snapshot")
+  - `docs/acceptance-metrics.md` (release-close checklist)
+  - `CHANGELOG.md` (public release framing)
+- Release-close validation source of truth in the public slice:
+  - `./scripts/check.sh`
   - `docs/acceptance-metrics.md` ("v0.1 release-close checklist")
 
 ## v0.1 (Sprint-6 compatibility/ref-hardening profile) -> v0.1 (v0.2-prep error-envelope compatibility profile)
@@ -76,11 +77,11 @@ These anchors are intentionally machine-checked and must stay aligned with runti
     - Consumers needing stable machine parsing should switch to `--json-errors` instead of scraping free-form text.
 - Required migration steps:
   1. For machine parsing, move parse/validate/pack/unpack error handling to `--json-errors` and consume envelope fields (`code`, `stage`, `message`, `span`, `hint`, `details`).
-  2. For tool consumers adopting `--json-errors`, treat Gate B8 in `docs/quality-gates.md` as the machine-contract reference for envelope invariants (ordered `details` items: `error_type`, `command`; runtime adapter/direct-builder parity: `stage="runtime"`, `details.command="eval"`; canonical runtime parity fixture names remain frozen in this migration profile summary).
+  2. For tool consumers adopting `--json-errors`, treat this migration profile plus the shipped CLI/runtime examples as the public machine-contract reference for envelope invariants (ordered `details` items: `error_type`, `command`; runtime adapter/direct-builder parity: `stage="runtime"`, `details.command="eval"`; canonical runtime parity fixture names remain frozen in this migration profile summary).
   3. For runtime envelope consumers, treat presence of `error` as the failure signal; do not infer failure from empty `actions`/`trace` alone.
   4. Keep existing human-readable handling unchanged where operator-facing stderr is preferred.
   5. Keep transform snapshot canaries pinned to both unpack span-bearing signatures (`transform_unpack_unexpected_char.stderr` at position `114`, `transform_unpack_unexpected_char_secondary.stderr` at position `139`).
-  6. Re-run `python3 -m unittest discover -s tests -v` and `./scripts/check.sh`.
+  6. Re-run `./scripts/check.sh`.
 - Validation checklist:
   - [x] Schema is valid JSON (unchanged)
   - [x] Error-envelope contract + deterministic ordering documented

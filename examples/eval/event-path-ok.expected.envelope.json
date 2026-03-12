@@ -1,0 +1,1 @@
+{"actions":[{"kind":"route","params":{"reason":"critical_nested_match","target":"security_ops"}}],"trace":[{"rule_id":"route_security_hot_alert","matched_clauses":["event_type_present","event_type_equals:alert","payload_path_exists:alert.id","payload_path_equals:routing.severity_bucket=critical","payload_path_in:routing.team=[\"ops\",\"security\"]"],"score":1.0}]}

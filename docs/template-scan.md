@@ -6,7 +6,7 @@ Source clone:
 
 ## Quick inventory
 - `pythoncode/` large operational codebase, useful as reference for evaluation/logging patterns.
-- `schema/` and `tests/` useful for schema-validation and quality-gate patterns.
+- `schema/` and the internal test lane were useful for schema-validation and quality-gate patterns during incubation.
 - `.githooks/pre-commit` pattern is reusable (run focused boundary tests before commit).
 
 ## What we reuse now (v0.1 phase)

@@ -1,0 +1,18 @@
+{
+  "type": "normalize",
+  "payload": {
+    "entities": [
+      {
+        "kind": "location",
+        "value": "B5 Ausfahrt Charlottenburg"
+      }
+    ],
+    "message": {
+      "summary": "Unfall B5 Ausfahrt Charlottenburg, zwei Fahrzeuge"
+    },
+    "routing": {
+      "service": "queue-berlin-edge"
+    },
+    "source": "nlp-v1"
+  }
+}

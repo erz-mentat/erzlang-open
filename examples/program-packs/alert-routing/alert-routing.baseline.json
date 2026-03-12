@@ -1,15 +1,16 @@
 {
   "pack_id": "sprint-7-pack-03-alert-routing",
-  "title": "Alert routing by severity/confidence buckets",
-  "calibration_note": "Runtime clauses stay structural. Severity/confidence thresholds must be pre-bucketed upstream (e.g., sev_critical/conf_high). Calibration only enriches trace probabilities.",
+  "title": "Alert routing by numeric severity/confidence thresholds",
+  "calibration_note": "Runtime clauses stay structural. Packs now route directly on nested numeric measurements via deterministic threshold predicates, no upstream bucket projection required. Calibration only enriches trace probabilities.",
   "rules": [
     {
       "id": "r01_page_primary",
       "when": [
         "event_type_present",
         "event_type_equals:alert",
-        "payload_has:sev_critical",
-        "payload_has:conf_high"
+        "payload_path_exists:alert.id",
+        "payload_path_gte:measurements.severity=0.9",
+        "payload_path_gte:measurements.confidence=0.85"
       ],
       "then": [
         {
@@ -28,8 +29,9 @@
       "when": [
         "event_type_present",
         "event_type_equals:alert",
-        "payload_has:sev_critical",
-        "payload_has:conf_low"
+        "payload_path_exists:alert.id",
+        "payload_path_gte:measurements.severity=0.9",
+        "payload_path_lt:measurements.confidence=0.85"
       ],
       "then": [
         {
@@ -48,8 +50,10 @@
       "when": [
         "event_type_present",
         "event_type_equals:alert",
-        "payload_has:sev_warning",
-        "payload_has:conf_high"
+        "payload_path_exists:alert.id",
+        "payload_path_gte:measurements.severity=0.6",
+        "payload_path_lt:measurements.severity=0.9",
+        "payload_path_gte:measurements.confidence=0.85"
       ],
       "then": [
         {
@@ -70,12 +74,14 @@
       "event": {
         "type": "alert",
         "payload": {
-          "alert_id": "A-100",
-          "confidence": 0.93,
-          "conf_high": true,
+          "alert": {
+            "id": "A-100"
+          },
+          "measurements": {
+            "confidence": 0.93,
+            "severity": 0.97
+          },
           "seed": "fixture-critical-high",
-          "severity": 0.97,
-          "sev_critical": true,
           "timestamp": "2026-02-25T17:00:00Z"
         }
       },
@@ -108,8 +114,9 @@
           "matched_clauses": [
             "event_type_present",
             "event_type_equals:alert",
-            "payload_has:sev_critical",
-            "payload_has:conf_high"
+            "payload_path_exists:alert.id",
+            "payload_path_gte:measurements.severity=0.9",
+            "payload_path_gte:measurements.confidence=0.85"
           ],
           "score": 1.0,
           "calibrated_probability": 0.98,
@@ -123,12 +130,14 @@
       "event": {
         "type": "alert",
         "payload": {
-          "alert_id": "A-101",
-          "confidence": 0.48,
-          "conf_low": true,
+          "alert": {
+            "id": "A-101"
+          },
+          "measurements": {
+            "confidence": 0.48,
+            "severity": 0.96
+          },
           "seed": "fixture-critical-low",
-          "severity": 0.96,
-          "sev_critical": true,
           "timestamp": "2026-02-25T17:05:00Z"
         }
       },
@@ -161,8 +170,9 @@
           "matched_clauses": [
             "event_type_present",
             "event_type_equals:alert",
-            "payload_has:sev_critical",
-            "payload_has:conf_low"
+            "payload_path_exists:alert.id",
+            "payload_path_gte:measurements.severity=0.9",
+            "payload_path_lt:measurements.confidence=0.85"
           ],
           "score": 1.0,
           "calibrated_probability": 0.76,
@@ -176,12 +186,14 @@
       "event": {
         "type": "alert",
         "payload": {
-          "alert_id": "A-102",
-          "confidence": 0.87,
-          "conf_high": true,
+          "alert": {
+            "id": "A-102"
+          },
+          "measurements": {
+            "confidence": 0.87,
+            "severity": 0.67
+          },
           "seed": "fixture-warning-high",
-          "severity": 0.67,
-          "sev_warning": true,
           "timestamp": "2026-02-25T17:10:00Z"
         }
       },
@@ -214,8 +226,10 @@
           "matched_clauses": [
             "event_type_present",
             "event_type_equals:alert",
-            "payload_has:sev_warning",
-            "payload_has:conf_high"
+            "payload_path_exists:alert.id",
+            "payload_path_gte:measurements.severity=0.6",
+            "payload_path_lt:measurements.severity=0.9",
+            "payload_path_gte:measurements.confidence=0.85"
           ],
           "score": 1.0,
           "calibrated_probability": 0.88,

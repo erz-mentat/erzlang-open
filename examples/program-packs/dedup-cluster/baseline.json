@@ -1,0 +1,265 @@
+{
+  "pack_id": "sprint-7-program-pack-2-dedup-cluster",
+  "title": "Dedup/cluster policy on canonical runtime payload paths",
+  "fixture_shape": "canonical_runtime_event",
+  "runtime_contract": {
+    "time_window_minutes": 10,
+    "geo_radius_meters": 500,
+    "category_path": "category",
+    "dedupe_key_path": "dedupe.key",
+    "time_minutes_path": "window.minutes_since_anchor",
+    "geo_distance_path": "geo.distance_meters"
+  },
+  "rules": [
+    {
+      "id": "r_cluster_attach_ops",
+      "when": [
+        "event_type_present",
+        "event_type_equals:incident_candidate",
+        "payload_path_exists:dedupe.key",
+        "payload_path_equals:category=ops",
+        "payload_path_lte:window.minutes_since_anchor=10",
+        "payload_path_lte:geo.distance_meters=500"
+      ],
+      "then": [
+        {
+          "kind": "cluster_attach",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "dedup",
+            "reason": "time_geo_category_match"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r_cluster_attach_security",
+      "when": [
+        "event_type_present",
+        "event_type_equals:incident_candidate",
+        "payload_path_exists:dedupe.key",
+        "payload_path_equals:category=security",
+        "payload_path_lte:window.minutes_since_anchor=10",
+        "payload_path_lte:geo.distance_meters=500"
+      ],
+      "then": [
+        {
+          "kind": "cluster_attach",
+          "params": {
+            "cluster_bucket": "security",
+            "mode": "dedup",
+            "reason": "time_geo_category_match"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r_cluster_new_ops_time",
+      "when": [
+        "event_type_present",
+        "event_type_equals:incident_candidate",
+        "payload_path_exists:dedupe.key",
+        "payload_path_equals:category=ops",
+        "payload_path_gt:window.minutes_since_anchor=10"
+      ],
+      "then": [
+        {
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "new",
+            "reason": "time_window_miss"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r_cluster_new_security_geo",
+      "when": [
+        "event_type_present",
+        "event_type_equals:incident_candidate",
+        "payload_path_exists:dedupe.key",
+        "payload_path_equals:category=security",
+        "payload_path_gt:geo.distance_meters=500"
+      ],
+      "then": [
+        {
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "security",
+            "mode": "new",
+            "reason": "geo_radius_miss"
+          }
+        }
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "attach_ops",
+      "event": {
+        "type": "incident_candidate",
+        "payload": {
+          "category": "ops",
+          "dedupe": {
+            "key": "site-17:power"
+          },
+          "geo": {
+            "distance_meters": 320
+          },
+          "window": {
+            "minutes_since_anchor": 6
+          }
+        }
+      },
+      "context": {
+        "now": "2026-02-25T12:00:00Z",
+        "seed": "case-attach-ops"
+      },
+      "expected_actions": [
+        {
+          "kind": "cluster_attach",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "dedup",
+            "reason": "time_geo_category_match"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r_cluster_attach_ops",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:incident_candidate",
+            "payload_path_exists:dedupe.key",
+            "payload_path_equals:category=ops",
+            "payload_path_lte:window.minutes_since_anchor=10",
+            "payload_path_lte:geo.distance_meters=500"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-02-25T12:00:00Z",
+          "seed": "case-attach-ops"
+        }
+      ]
+    },
+    {
+      "id": "new_security_geo_miss",
+      "event": {
+        "type": "incident_candidate",
+        "payload": {
+          "category": "security",
+          "dedupe": {
+            "key": "site-07:access"
+          },
+          "geo": {
+            "distance_meters": 910
+          },
+          "window": {
+            "minutes_since_anchor": 4
+          }
+        }
+      },
+      "context": {
+        "now": "2026-02-25T12:05:00Z",
+        "seed": "case-new-security-geo"
+      },
+      "expected_actions": [
+        {
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "security",
+            "mode": "new",
+            "reason": "geo_radius_miss"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r_cluster_new_security_geo",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:incident_candidate",
+            "payload_path_exists:dedupe.key",
+            "payload_path_equals:category=security",
+            "payload_path_gt:geo.distance_meters=500"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-02-25T12:05:00Z",
+          "seed": "case-new-security-geo"
+        }
+      ]
+    },
+    {
+      "id": "new_ops_time_miss",
+      "event": {
+        "type": "incident_candidate",
+        "payload": {
+          "category": "ops",
+          "dedupe": {
+            "key": "site-21:power"
+          },
+          "geo": {
+            "distance_meters": 140
+          },
+          "window": {
+            "minutes_since_anchor": 15
+          }
+        }
+      },
+      "context": {
+        "now": "2026-02-25T12:10:00Z",
+        "seed": "case-new-ops-time"
+      },
+      "expected_actions": [
+        {
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "new",
+            "reason": "time_window_miss"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r_cluster_new_ops_time",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:incident_candidate",
+            "payload_path_exists:dedupe.key",
+            "payload_path_equals:category=ops",
+            "payload_path_gt:window.minutes_since_anchor=10"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-02-25T12:10:00Z",
+          "seed": "case-new-ops-time"
+        }
+      ]
+    },
+    {
+      "id": "no_match_unknown_category",
+      "event": {
+        "type": "incident_candidate",
+        "payload": {
+          "category": "finance",
+          "dedupe": {
+            "key": "site-02:accounting"
+          },
+          "geo": {
+            "distance_meters": 120
+          },
+          "window": {
+            "minutes_since_anchor": 3
+          }
+        }
+      },
+      "context": {
+        "now": "2026-02-25T12:15:00Z",
+        "seed": "case-no-match"
+      },
+      "expected_actions": [],
+      "expected_trace": []
+    }
+  ]
+}

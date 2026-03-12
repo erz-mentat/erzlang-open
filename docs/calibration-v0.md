@@ -73,7 +73,7 @@ Separation guard remains explicit:
 - runtime `score` is structural match coverage
 - runtime `calibrated_probability` is derived from structural score only
 - payload fields like `severity` / `confidence` are not implicitly interpreted as probabilities
-- threshold-like DSL clauses remain unsupported unless explicitly implemented
+- threshold-like shorthand DSL aliases remain unsupported unless explicitly implemented, while explicit numeric payload-path clauses such as `payload_path_gt/gte/lt/lte` are supported and remain purely structural
 
 Guard coverage includes:
 

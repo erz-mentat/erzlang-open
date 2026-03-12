@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_entity_batch",when:["event_type_present","event_type_equals:normalize","payload_path_len_gte:entities=2","payload_path_len_gt:message.summary=10","payload_path_len_lte:routing.channels=2"],then:[{kind:"route",params:{target:"cardinality_lane",reason:"sized_payload_match"}}]}

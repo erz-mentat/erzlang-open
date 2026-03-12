@@ -1,0 +1,1 @@
+status=ok checked=2 verified=2 missing=0 manifest_missing=0 invalid_hashes=0 mismatched=0 unexpected_manifest=0 selected=2 selected_manifest=2 strict_mismatches=0
