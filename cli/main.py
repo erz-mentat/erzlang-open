@@ -145,7 +145,7 @@ def main() -> None:
     )
     eval_input_group.add_argument(
         "--batch",
-        help="directory of event JSON fixtures for deterministic batch replay",
+        help="directory of event JSON fixtures or batch index JSON file for deterministic batch replay",
     )
     eval_parser.add_argument(
         "--include",
@@ -154,6 +154,43 @@ def main() -> None:
     eval_parser.add_argument(
         "--exclude",
         help="optional glob filter to remove batch event filenames after include filter (requires --batch)",
+    )
+    eval_parser.add_argument(
+        "--batch-strict",
+        action="store_true",
+        help=(
+            "strict batch selector gate, keeps raw replay status visible while asserting expected "
+            "batch replay shape (requires at least one --batch-expected-* selector)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-expected-event-count",
+        type=int,
+        help="optional expected post-filter batch event count for strict batch replay",
+    )
+    eval_parser.add_argument(
+        "--batch-expected-total-event-count",
+        type=int,
+        help=(
+            "optional expected pre-filter batch event count for strict batch replay, "
+            "useful to catch collection growth outside the selected slice"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-expected-total-event",
+        action="append",
+        help=(
+            "optional exact expected pre-filter batch event filename in deterministic source collection order, "
+            "repeatable (requires --batch-strict)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-expected-selected-event",
+        action="append",
+        help=(
+            "optional exact expected selected batch event filename in deterministic replay order, "
+            "repeatable (requires --batch-strict)"
+        ),
     )
     eval_parser.add_argument(
         "--batch-summary-rule-counts",
@@ -215,6 +252,21 @@ def main() -> None:
         help=(
             "run self-verify with strict summary-profile checks after artifact write "
             "(requires --batch-output-self-verify; supports --batch-output-verify-profile and strict expectation selectors)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-output-self-verify-summary-file",
+        help=(
+            "optional file path to export generation-time self-verify output (JSON or --summary line); "
+            "byte-identical to standalone verify output while stdout stays the normal eval output "
+            "(requires --batch-output-self-verify)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-output-self-verify-json-file",
+        help=(
+            "optional file path to export generation-time self-verify JSON output without changing stdout; "
+            "byte-identical to standalone verify JSON output (requires --batch-output-self-verify)"
         ),
     )
     eval_parser.add_argument(
@@ -339,11 +391,36 @@ def main() -> None:
         help="optional expected selected candidate artifact count for strict compare",
     )
     eval_parser.add_argument(
+        "--batch-output-compare-expected-selected-baseline-artifact",
+        action="append",
+        help=(
+            "optional exact expected selected baseline artifact path in deterministic filtered order, "
+            "repeatable (requires strict compare)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-output-compare-expected-selected-candidate-artifact",
+        action="append",
+        help=(
+            "optional exact expected selected candidate artifact path in deterministic filtered order, "
+            "repeatable (requires strict compare)"
+        ),
+    )
+    eval_parser.add_argument(
         "--batch-output-compare-summary-file",
         help=(
             "optional file path to export compare-lane output (JSON or --summary line); "
             "byte-identical to stdout for --batch-output-compare, and for self-compare exports the compare output "
             "while stdout stays the normal eval output "
+            "(requires --batch-output-compare or --batch-output-self-compare-against)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-output-compare-json-file",
+        help=(
+            "optional file path to export compare-lane JSON output without changing stdout; "
+            "byte-identical to stdout when --summary is not active for --batch-output-compare, "
+            "and for self-compare exports the compare JSON while stdout stays the normal eval output "
             "(requires --batch-output-compare or --batch-output-self-compare-against)"
         ),
     )
@@ -366,6 +443,13 @@ def main() -> None:
         help=(
             "optional file path to export verify-lane output (JSON or --summary line) "
             "byte-identical to stdout (requires --batch-output-verify)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-output-verify-json-file",
+        help=(
+            "optional file path to export verify-lane JSON output without changing stdout; "
+            "byte-identical to stdout when --summary is not active (requires --batch-output-verify)"
         ),
     )
     eval_parser.add_argument(
@@ -465,6 +549,14 @@ def main() -> None:
         help="optional expected selector-filtered artifact count for strict verify",
     )
     eval_parser.add_argument(
+        "--batch-output-verify-expected-selected-artifact",
+        action="append",
+        help=(
+            "optional exact expected selector-filtered artifact path in deterministic filtered order, "
+            "repeatable (requires strict verify)"
+        ),
+    )
+    eval_parser.add_argument(
         "--batch-output-verify-expected-manifest-selected-entry-count",
         type=int,
         help="optional expected selector-filtered manifest-entry count for strict verify",
@@ -507,6 +599,22 @@ def main() -> None:
         help="write eval payload to file while preserving deterministic stdout output",
     )
     eval_parser.add_argument(
+        "--summary-file",
+        help=(
+            "optional file path to export summary-mode eval output without changing stdout; "
+            "byte-identical to stdout when --summary is active "
+            "(not supported with --batch-output-verify or --batch-output-compare)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--json-file",
+        help=(
+            "optional file path to export JSON eval output without changing stdout; "
+            "byte-identical to stdout when --summary is not active "
+            "(not supported with --batch-output-verify or --batch-output-compare)"
+        ),
+    )
+    eval_parser.add_argument(
         "--meta",
         action="store_true",
         help="append deterministic eval metadata (`meta.program_sha256`, `meta.event_sha256`)",
@@ -532,7 +640,23 @@ def main() -> None:
     )
     pack_replay_parser.add_argument(
         "path",
-        help="program-pack directory containing one .erz file and one baseline JSON file (fixture matrix or inline statements)",
+        help=(
+            "program-pack directory, collection directory, or pack index JSON "
+            "(single-pack dirs contain one .erz file and one baseline JSON file)"
+        ),
+    )
+    pack_replay_parser.add_argument(
+        "--include-pack",
+        action="append",
+        help=(
+            "optional glob selector for aggregate pack paths, repeatable, "
+            "evaluated before --exclude-pack"
+        ),
+    )
+    pack_replay_parser.add_argument(
+        "--exclude-pack",
+        action="append",
+        help="optional glob selector that removes aggregate pack paths after --include-pack",
     )
     pack_replay_parser.add_argument(
         "--fixture",
@@ -653,9 +777,27 @@ def main() -> None:
         help="optional expected rule_source_status value for strict replay",
     )
     pack_replay_parser.add_argument(
+        "--expected-pack-count",
+        dest="pack_replay_expected_pack_count",
+        type=int,
+        help="optional expected aggregate selected pack count for strict collection replay",
+    )
+    pack_replay_parser.add_argument(
+        "--expected-total-pack-count",
+        dest="pack_replay_expected_total_pack_count",
+        type=int,
+        help="optional expected aggregate total available pack count before pack selectors for strict collection replay",
+    )
+    pack_replay_parser.add_argument(
+        "--expected-selected-pack",
+        dest="pack_replay_expected_selected_pack_paths",
+        action="append",
+        help="optional exact aggregate selected pack path contract for strict collection replay, repeatable, compared in canonical replay order",
+    )
+    pack_replay_parser.add_argument(
         "--summary",
         action="store_true",
-        help="emit deterministic one-line replay summary instead of JSON details",
+        help="emit deterministic replay summary output instead of JSON details",
     )
     pack_replay_parser.add_argument(
         "--summary-file",
@@ -726,6 +868,18 @@ def main() -> None:
             self_compare_enabled = args.batch_output_self_compare_against is not None
             self_compare_strict_enabled = bool(args.batch_output_self_compare_strict)
             self_compare_strict_profile: dict[str, object] | None = None
+            normalized_compare_expected_selected_baseline_artifacts = _normalize_string_selectors(
+                args.batch_output_compare_expected_selected_baseline_artifact,
+                option_name="--batch-output-compare-expected-selected-baseline-artifact",
+            )
+            normalized_compare_expected_selected_candidate_artifacts = _normalize_string_selectors(
+                args.batch_output_compare_expected_selected_candidate_artifact,
+                option_name="--batch-output-compare-expected-selected-candidate-artifact",
+            )
+            normalized_verify_expected_selected_artifacts = _normalize_string_selectors(
+                args.batch_output_verify_expected_selected_artifact,
+                option_name="--batch-output-verify-expected-selected-artifact",
+            )
 
             compare_expected_selectors = [
                 ("--batch-output-compare-expected-status", args.batch_output_compare_expected_status),
@@ -769,6 +923,14 @@ def main() -> None:
                     "--batch-output-compare-expected-selected-candidate-count",
                     args.batch_output_compare_expected_selected_candidate_count,
                 ),
+                (
+                    "--batch-output-compare-expected-selected-baseline-artifact",
+                    normalized_compare_expected_selected_baseline_artifacts,
+                ),
+                (
+                    "--batch-output-compare-expected-selected-candidate-artifact",
+                    normalized_compare_expected_selected_candidate_artifacts,
+                ),
             ]
             has_compare_strict_contract = (
                 args.batch_output_compare_profile is not None
@@ -793,6 +955,11 @@ def main() -> None:
                 if args.batch_output_compare_summary_file is not None and not self_compare_enabled:
                     raise ValueError(
                         "--batch-output-compare-summary-file requires --batch-output-compare or "
+                        "--batch-output-self-compare-against"
+                    )
+                if args.batch_output_compare_json_file is not None and not self_compare_enabled:
+                    raise ValueError(
+                        "--batch-output-compare-json-file requires --batch-output-compare or "
                         "--batch-output-self-compare-against"
                     )
                 if args.batch_output_compare_strict:
@@ -830,6 +997,44 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-compare-summary-file must be non-empty when provided"
                     )
+                if args.batch_output_compare_json_file == "":
+                    raise ValueError(
+                        "--batch-output-compare-json-file must be non-empty when provided"
+                    )
+                if (
+                    args.output is not None
+                    and args.batch_output_compare_summary_file is not None
+                    and _paths_are_same_location(
+                        args.output,
+                        args.batch_output_compare_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--output must differ from --batch-output-compare-summary-file so eval output cannot overwrite the compare sidecar"
+                    )
+                if (
+                    args.output is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.output,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--output must differ from --batch-output-compare-json-file so eval output cannot overwrite the compare sidecar"
+                    )
+                if (
+                    args.summary
+                    and args.batch_output_compare_summary_file is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_compare_summary_file,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-summary-file and --batch-output-compare-json-file must differ when --summary is set"
+                    )
                 strict_compare_enabled = bool(
                     args.batch_output_compare_strict or args.batch_output_compare_profile is not None
                 )
@@ -856,6 +1061,24 @@ def main() -> None:
                     raise ValueError("--include is not supported with --batch-output-compare")
                 if args.exclude is not None:
                     raise ValueError("--exclude is not supported with --batch-output-compare")
+                if args.batch_strict:
+                    raise ValueError("--batch-strict is not supported with --batch-output-compare")
+                if args.batch_expected_event_count is not None:
+                    raise ValueError(
+                        "--batch-expected-event-count is not supported with --batch-output-compare"
+                    )
+                if args.batch_expected_total_event_count is not None:
+                    raise ValueError(
+                        "--batch-expected-total-event-count is not supported with --batch-output-compare"
+                    )
+                if args.batch_expected_total_event is not None:
+                    raise ValueError(
+                        "--batch-expected-total-event is not supported with --batch-output-compare"
+                    )
+                if args.batch_expected_selected_event is not None:
+                    raise ValueError(
+                        "--batch-expected-selected-event is not supported with --batch-output-compare"
+                    )
                 if args.batch_output is not None:
                     raise ValueError("--batch-output is not supported with --batch-output-compare")
                 if args.batch_output_errors_only:
@@ -894,6 +1117,14 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-self-verify-strict is not supported with --batch-output-compare"
                     )
+                if args.batch_output_self_verify_summary_file is not None:
+                    raise ValueError(
+                        "--batch-output-self-verify-summary-file is not supported with --batch-output-compare"
+                    )
+                if args.batch_output_self_verify_json_file is not None:
+                    raise ValueError(
+                        "--batch-output-self-verify-json-file is not supported with --batch-output-compare"
+                    )
                 if args.batch_output_verify is not None:
                     raise ValueError(
                         "--batch-output-verify is not supported with --batch-output-compare"
@@ -909,6 +1140,10 @@ def main() -> None:
                 if args.batch_output_verify_summary_file is not None:
                     raise ValueError(
                         "--batch-output-verify-summary-file is not supported with --batch-output-compare"
+                    )
+                if args.batch_output_verify_json_file is not None:
+                    raise ValueError(
+                        "--batch-output-verify-json-file is not supported with --batch-output-compare"
                     )
                 if args.batch_output_verify_strict:
                     raise ValueError(
@@ -982,6 +1217,10 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-verify-expected-selected-artifact-count is not supported with --batch-output-compare"
                     )
+                if normalized_verify_expected_selected_artifacts is not None:
+                    raise ValueError(
+                        "--batch-output-verify-expected-selected-artifact is not supported with --batch-output-compare"
+                    )
                 if args.batch_output_verify_expected_manifest_selected_entry_count is not None:
                     raise ValueError(
                         "--batch-output-verify-expected-manifest-selected-entry-count is not supported with --batch-output-compare"
@@ -994,6 +1233,10 @@ def main() -> None:
                     raise ValueError("--meta is not supported with --batch-output-compare")
                 if args.generated_at is not None:
                     raise ValueError("--generated-at is not supported with --batch-output-compare")
+                if args.summary_file is not None:
+                    raise ValueError("--summary-file is not supported with --batch-output-compare")
+                if args.json_file is not None:
+                    raise ValueError("--json-file is not supported with --batch-output-compare")
                 if args.strict:
                     raise ValueError("--strict is not supported with --batch-output-compare")
                 if args.exit_policy != "default":
@@ -1013,6 +1256,8 @@ def main() -> None:
                     expected_metadata_mismatches_count=args.batch_output_compare_expected_metadata_mismatches_count,
                     expected_selected_baseline_count=args.batch_output_compare_expected_selected_baseline_count,
                     expected_selected_candidate_count=args.batch_output_compare_expected_selected_candidate_count,
+                    expected_selected_baseline_artifacts=normalized_compare_expected_selected_baseline_artifacts,
+                    expected_selected_candidate_artifacts=normalized_compare_expected_selected_candidate_artifacts,
                 )
                 compare_summary = _compare_batch_output_artifacts(
                     args.batch_output_compare,
@@ -1024,6 +1269,10 @@ def main() -> None:
                     against_flag="--batch-output-compare-against",
                     selector_flag="--batch-output-compare selectors",
                 )
+                rendered_compare_json = _render_batch_output_compare_summary(
+                    compare_summary,
+                    summary=False,
+                )
                 rendered_output = _render_batch_output_compare_summary(
                     compare_summary,
                     summary=bool(args.summary),
@@ -1033,6 +1282,8 @@ def main() -> None:
                     _write_eval_output(args.output, rendered_output)
                 if args.batch_output_compare_summary_file:
                     _write_eval_output(args.batch_output_compare_summary_file, rendered_output)
+                if args.batch_output_compare_json_file:
+                    _write_eval_output(args.batch_output_compare_json_file, rendered_compare_json)
 
                 print(rendered_output)
 
@@ -1068,6 +1319,110 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-compare-summary-file must be non-empty when provided"
                     )
+                if args.batch_output_compare_json_file == "":
+                    raise ValueError(
+                        "--batch-output-compare-json-file must be non-empty when provided"
+                    )
+                if (
+                    args.output is not None
+                    and args.batch_output_compare_summary_file is not None
+                    and _paths_are_same_location(
+                        args.output,
+                        args.batch_output_compare_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--output must differ from --batch-output-compare-summary-file so eval output cannot overwrite the compare sidecar"
+                    )
+                if (
+                    args.output is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.output,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--output must differ from --batch-output-compare-json-file so eval output cannot overwrite the compare sidecar"
+                    )
+                if (
+                    args.batch_output_summary_file is not None
+                    and args.batch_output_compare_summary_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_summary_file,
+                        args.batch_output_compare_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-summary-file must differ from --batch-output-compare-summary-file so the batch aggregate sidecar cannot be overwritten"
+                    )
+                if (
+                    args.batch_output_summary_file is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_summary_file,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-summary-file must differ from --batch-output-compare-json-file so the batch aggregate sidecar cannot be overwritten"
+                    )
+                if (
+                    args.summary
+                    and args.batch_output_compare_summary_file is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_compare_summary_file,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-summary-file and --batch-output-compare-json-file must differ when --summary is set"
+                    )
+                if (
+                    args.batch_output_self_verify_summary_file is not None
+                    and args.batch_output_compare_summary_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_self_verify_summary_file,
+                        args.batch_output_compare_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-summary-file must differ from --batch-output-self-verify-summary-file so compare output cannot overwrite the self-verify sidecar"
+                    )
+                if (
+                    args.batch_output_self_verify_summary_file is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_self_verify_summary_file,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-json-file must differ from --batch-output-self-verify-summary-file so compare output cannot overwrite the self-verify sidecar"
+                    )
+                if (
+                    args.batch_output_self_verify_json_file is not None
+                    and args.batch_output_compare_summary_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_self_verify_json_file,
+                        args.batch_output_compare_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-summary-file must differ from --batch-output-self-verify-json-file so compare output cannot overwrite the self-verify sidecar"
+                    )
+                if (
+                    args.batch_output_self_verify_json_file is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_self_verify_json_file,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-json-file must differ from --batch-output-self-verify-json-file so compare output cannot overwrite the self-verify sidecar"
+                    )
                 if args.batch_output_compare_profile is not None and not self_compare_strict_enabled:
                     raise ValueError(
                         "--batch-output-compare-profile requires --batch-output-self-compare-strict"
@@ -1099,6 +1454,8 @@ def main() -> None:
                         expected_metadata_mismatches_count=args.batch_output_compare_expected_metadata_mismatches_count,
                         expected_selected_baseline_count=args.batch_output_compare_expected_selected_baseline_count,
                         expected_selected_candidate_count=args.batch_output_compare_expected_selected_candidate_count,
+                        expected_selected_baseline_artifacts=normalized_compare_expected_selected_baseline_artifacts,
+                        expected_selected_candidate_artifacts=normalized_compare_expected_selected_candidate_artifacts,
                     )
 
             if args.batch_output_verify is None:
@@ -1113,6 +1470,10 @@ def main() -> None:
                 if args.batch_output_verify_summary_file is not None:
                     raise ValueError(
                         "--batch-output-verify-summary-file requires --batch-output-verify"
+                    )
+                if args.batch_output_verify_json_file is not None:
+                    raise ValueError(
+                        "--batch-output-verify-json-file requires --batch-output-verify"
                     )
                 if args.batch_output_verify_strict:
                     raise ValueError("--batch-output-verify-strict requires --batch-output-verify")
@@ -1223,6 +1584,13 @@ def main() -> None:
                 ):
                     raise ValueError(
                         "--batch-output-verify-expected-selected-artifact-count requires strict verify"
+                    )
+                if (
+                    normalized_verify_expected_selected_artifacts is not None
+                    and not self_verify_strict_enabled
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-selected-artifact requires strict verify"
                     )
                 if (
                     args.batch_output_verify_expected_manifest_selected_entry_count is not None
@@ -1344,6 +1712,7 @@ def main() -> None:
                         expected_event_artifact_count=args.batch_output_verify_expected_event_artifact_count,
                         expected_manifest_entry_count=args.batch_output_verify_expected_manifest_entry_count,
                         expected_selected_artifact_count=args.batch_output_verify_expected_selected_artifact_count,
+                        expected_selected_artifacts=normalized_verify_expected_selected_artifacts,
                         expected_manifest_selected_entry_count=args.batch_output_verify_expected_manifest_selected_entry_count,
                         require_run_id=bool(args.batch_output_verify_require_run_id),
                     )
@@ -1362,6 +1731,10 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-verify-summary-file must be non-empty when provided"
                     )
+                if args.batch_output_verify_json_file == "":
+                    raise ValueError(
+                        "--batch-output-verify-json-file must be non-empty when provided"
+                    )
                 if args.summary_policy:
                     raise ValueError("--summary-policy is not supported with --batch-output-verify")
                 if args.input is not None or args.batch is not None:
@@ -1372,6 +1745,24 @@ def main() -> None:
                     raise ValueError("--include is not supported with --batch-output-verify")
                 if args.exclude is not None:
                     raise ValueError("--exclude is not supported with --batch-output-verify")
+                if args.batch_strict:
+                    raise ValueError("--batch-strict is not supported with --batch-output-verify")
+                if args.batch_expected_event_count is not None:
+                    raise ValueError(
+                        "--batch-expected-event-count is not supported with --batch-output-verify"
+                    )
+                if args.batch_expected_total_event_count is not None:
+                    raise ValueError(
+                        "--batch-expected-total-event-count is not supported with --batch-output-verify"
+                    )
+                if args.batch_expected_total_event is not None:
+                    raise ValueError(
+                        "--batch-expected-total-event is not supported with --batch-output-verify"
+                    )
+                if args.batch_expected_selected_event is not None:
+                    raise ValueError(
+                        "--batch-expected-selected-event is not supported with --batch-output-verify"
+                    )
                 if args.batch_output is not None:
                     raise ValueError("--batch-output is not supported with --batch-output-verify")
                 if args.batch_output_errors_only:
@@ -1392,10 +1783,22 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-self-verify-strict is not supported with --batch-output-verify"
                     )
+                if args.batch_output_self_verify_summary_file is not None:
+                    raise ValueError(
+                        "--batch-output-self-verify-summary-file is not supported with --batch-output-verify"
+                    )
+                if args.batch_output_self_verify_json_file is not None:
+                    raise ValueError(
+                        "--batch-output-self-verify-json-file is not supported with --batch-output-verify"
+                    )
                 if args.meta:
                     raise ValueError("--meta is not supported with --batch-output-verify")
                 if args.generated_at is not None:
                     raise ValueError("--generated-at is not supported with --batch-output-verify")
+                if args.summary_file is not None:
+                    raise ValueError("--summary-file is not supported with --batch-output-verify")
+                if args.json_file is not None:
+                    raise ValueError("--json-file is not supported with --batch-output-verify")
                 if args.strict:
                     raise ValueError("--strict is not supported with --batch-output-verify")
                 if str(args.exit_policy) != "default":
@@ -1477,6 +1880,13 @@ def main() -> None:
                 ):
                     raise ValueError(
                         "--batch-output-verify-expected-selected-artifact-count requires strict verify"
+                    )
+                if (
+                    normalized_verify_expected_selected_artifacts is not None
+                    and not strict_verify_enabled
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-selected-artifact requires strict verify"
                     )
                 if (
                     args.batch_output_verify_expected_manifest_selected_entry_count is not None
@@ -1594,6 +2004,7 @@ def main() -> None:
                     expected_event_artifact_count=args.batch_output_verify_expected_event_artifact_count,
                     expected_manifest_entry_count=args.batch_output_verify_expected_manifest_entry_count,
                     expected_selected_artifact_count=args.batch_output_verify_expected_selected_artifact_count,
+                    expected_selected_artifacts=normalized_verify_expected_selected_artifacts,
                     expected_manifest_selected_entry_count=args.batch_output_verify_expected_manifest_selected_entry_count,
                     require_run_id=bool(args.batch_output_verify_require_run_id),
                 )
@@ -1604,6 +2015,10 @@ def main() -> None:
                     include_glob=args.batch_output_verify_include,
                     exclude_glob=args.batch_output_verify_exclude,
                 )
+                rendered_verify_json = _render_batch_output_verify_summary(
+                    verify_summary,
+                    summary=False,
+                )
                 rendered_output = _render_batch_output_verify_summary(
                     verify_summary,
                     summary=bool(args.summary),
@@ -1613,6 +2028,8 @@ def main() -> None:
                     _write_eval_output(args.output, rendered_output)
                 if args.batch_output_verify_summary_file:
                     _write_eval_output(args.batch_output_verify_summary_file, rendered_output)
+                if args.batch_output_verify_json_file:
+                    _write_eval_output(args.batch_output_verify_json_file, rendered_verify_json)
 
                 print(rendered_output)
 
@@ -1627,11 +2044,29 @@ def main() -> None:
 
             source = _read_source(args.path)
             sidecar_refs = _read_eval_refs_source(args.refs) if args.refs else None
+            normalized_batch_expected_total_events = _normalize_string_selectors(
+                args.batch_expected_total_event,
+                option_name="--batch-expected-total-event",
+            )
+            normalized_batch_expected_selected_events = _normalize_string_selectors(
+                args.batch_expected_selected_event,
+                option_name="--batch-expected-selected-event",
+            )
 
             if args.include is not None and not args.batch:
                 raise ValueError("--include requires --batch")
             if args.exclude is not None and not args.batch:
                 raise ValueError("--exclude requires --batch")
+            if args.batch_strict and not args.batch:
+                raise ValueError("--batch-strict requires --batch")
+            if args.batch_expected_event_count is not None and not args.batch:
+                raise ValueError("--batch-expected-event-count requires --batch")
+            if args.batch_expected_total_event_count is not None and not args.batch:
+                raise ValueError("--batch-expected-total-event-count requires --batch")
+            if normalized_batch_expected_total_events is not None and not args.batch:
+                raise ValueError("--batch-expected-total-event requires --batch")
+            if normalized_batch_expected_selected_events is not None and not args.batch:
+                raise ValueError("--batch-expected-selected-event requires --batch")
             if args.batch_output is not None and not args.batch:
                 raise ValueError("--batch-output requires --batch")
             if args.batch_output_errors_only and not args.batch_output:
@@ -1654,6 +2089,106 @@ def main() -> None:
                 raise ValueError(
                     "--batch-output-self-verify-strict requires --batch-output-self-verify"
                 )
+            if (
+                args.batch_output_self_verify_summary_file is not None
+                and not args.batch_output_self_verify
+            ):
+                raise ValueError(
+                    "--batch-output-self-verify-summary-file requires --batch-output-self-verify"
+                )
+            if (
+                args.batch_output_self_verify_json_file is not None
+                and not args.batch_output_self_verify
+            ):
+                raise ValueError(
+                    "--batch-output-self-verify-json-file requires --batch-output-self-verify"
+                )
+            if args.batch_output_self_verify_summary_file == "":
+                raise ValueError(
+                    "--batch-output-self-verify-summary-file must be non-empty when provided"
+                )
+            if args.batch_output_self_verify_json_file == "":
+                raise ValueError(
+                    "--batch-output-self-verify-json-file must be non-empty when provided"
+                )
+            if (
+                args.batch_output_self_verify_summary_file is not None
+                and args.batch_output
+                and _path_is_within_directory(
+                    args.batch_output_self_verify_summary_file,
+                    args.batch_output,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-self-verify-summary-file must be outside --batch-output to avoid overwriting verified artifacts"
+                )
+            if (
+                args.batch_output_self_verify_json_file is not None
+                and args.batch_output
+                and _path_is_within_directory(
+                    args.batch_output_self_verify_json_file,
+                    args.batch_output,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-self-verify-json-file must be outside --batch-output to avoid overwriting verified artifacts"
+                )
+            if (
+                args.output is not None
+                and args.batch_output_self_verify_summary_file is not None
+                and _paths_are_same_location(
+                    args.output,
+                    args.batch_output_self_verify_summary_file,
+                )
+            ):
+                raise ValueError(
+                    "--output must differ from --batch-output-self-verify-summary-file so eval output cannot overwrite the self-verify sidecar"
+                )
+            if (
+                args.output is not None
+                and args.batch_output_self_verify_json_file is not None
+                and _paths_are_same_location(
+                    args.output,
+                    args.batch_output_self_verify_json_file,
+                )
+            ):
+                raise ValueError(
+                    "--output must differ from --batch-output-self-verify-json-file so eval output cannot overwrite the self-verify sidecar"
+                )
+            if (
+                args.batch_output_summary_file is not None
+                and args.batch_output_self_verify_summary_file is not None
+                and _paths_are_same_location(
+                    args.batch_output_summary_file,
+                    args.batch_output_self_verify_summary_file,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-summary-file must differ from --batch-output-self-verify-summary-file so the batch aggregate sidecar cannot be overwritten"
+                )
+            if (
+                args.batch_output_summary_file is not None
+                and args.batch_output_self_verify_json_file is not None
+                and _paths_are_same_location(
+                    args.batch_output_summary_file,
+                    args.batch_output_self_verify_json_file,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-summary-file must differ from --batch-output-self-verify-json-file so the batch aggregate sidecar cannot be overwritten"
+                )
+            if (
+                args.summary
+                and args.batch_output_self_verify_summary_file is not None
+                and args.batch_output_self_verify_json_file is not None
+                and _paths_are_same_location(
+                    args.batch_output_self_verify_summary_file,
+                    args.batch_output_self_verify_json_file,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-self-verify-summary-file and --batch-output-self-verify-json-file must differ when --summary is set"
+                )
             if self_compare_enabled and not args.batch_output:
                 raise ValueError("--batch-output-self-compare-against requires --batch-output")
             if args.batch_output_self_compare_strict and not self_compare_enabled:
@@ -1664,6 +2199,80 @@ def main() -> None:
                 raise ValueError("--include must be non-empty when provided")
             if args.exclude == "":
                 raise ValueError("--exclude must be non-empty when provided")
+            if args.summary_file == "":
+                raise ValueError("--summary-file must be non-empty when provided")
+            if args.json_file == "":
+                raise ValueError("--json-file must be non-empty when provided")
+            if (
+                args.summary_file is not None
+                and args.json_file is not None
+                and _paths_are_same_location(args.summary_file, args.json_file)
+            ):
+                raise ValueError(
+                    "--summary-file and --json-file must differ because they export different output shapes"
+                )
+            if (
+                not args.summary
+                and args.output is not None
+                and args.summary_file is not None
+                and _paths_are_same_location(args.output, args.summary_file)
+            ):
+                raise ValueError(
+                    "--output must differ from --summary-file unless --summary is active"
+                )
+            if (
+                args.summary
+                and args.output is not None
+                and args.json_file is not None
+                and _paths_are_same_location(args.output, args.json_file)
+            ):
+                raise ValueError(
+                    "--output must differ from --json-file when --summary is active"
+                )
+            batch_strict_enabled = bool(
+                args.batch and (args.batch_strict or normalized_batch_expected_selected_events is not None)
+            )
+            has_batch_strict_contract = (
+                args.batch_expected_event_count is not None
+                or args.batch_expected_total_event_count is not None
+                or normalized_batch_expected_total_events is not None
+                or normalized_batch_expected_selected_events is not None
+            )
+            if args.batch_strict and not has_batch_strict_contract:
+                raise ValueError(
+                    "--batch-strict requires at least one --batch-expected-* selector"
+                )
+            if args.batch_expected_event_count is not None and not batch_strict_enabled:
+                raise ValueError("--batch-expected-event-count requires --batch-strict")
+            if args.batch_expected_total_event_count is not None and not batch_strict_enabled:
+                raise ValueError("--batch-expected-total-event-count requires --batch-strict")
+            if (
+                normalized_batch_expected_total_events is not None
+                and not batch_strict_enabled
+            ):
+                raise ValueError("--batch-expected-total-event requires --batch-strict")
+            if (
+                normalized_batch_expected_selected_events is not None
+                and not batch_strict_enabled
+            ):
+                raise ValueError("--batch-expected-selected-event requires --batch-strict")
+            if (
+                args.batch_expected_event_count is not None
+                and args.batch_expected_event_count < 0
+            ):
+                raise ValueError("--batch-expected-event-count must be >= 0")
+            if (
+                args.batch_expected_total_event_count is not None
+                and args.batch_expected_total_event_count < 0
+            ):
+                raise ValueError("--batch-expected-total-event-count must be >= 0")
+            batch_strict_profile = _resolve_eval_batch_strict_profile(
+                enabled=batch_strict_enabled,
+                expected_event_count=args.batch_expected_event_count,
+                expected_total_event_count=args.batch_expected_total_event_count,
+                expected_total_event_names=normalized_batch_expected_total_events,
+                expected_selected_event_names=normalized_batch_expected_selected_events,
+            )
             if args.batch_output_run_id == "":
                 raise ValueError("--batch-output-run-id must be non-empty when provided")
             if args.batch_summary_rule_counts and not args.batch:
@@ -1691,6 +2300,7 @@ def main() -> None:
                     sidecar_refs=sidecar_refs,
                     include_rule_counts=bool(args.batch_summary_rule_counts),
                     include_action_kind_counts=bool(args.batch_summary_action_kind_counts),
+                    strict_profile=batch_strict_profile,
                 )
             else:
                 assert args.input is not None
@@ -1730,6 +2340,24 @@ def main() -> None:
                         args.batch_output,
                         strict_profile=self_verify_strict_profile,
                     )
+                    rendered_self_verify_json = _render_batch_output_verify_summary(
+                        self_verify_summary,
+                        summary=False,
+                    )
+                    if args.batch_output_self_verify_summary_file:
+                        rendered_self_verify_output = _render_batch_output_verify_summary(
+                            self_verify_summary,
+                            summary=bool(args.summary),
+                        )
+                        _write_eval_output(
+                            args.batch_output_self_verify_summary_file,
+                            rendered_self_verify_output,
+                        )
+                    if args.batch_output_self_verify_json_file:
+                        _write_eval_output(
+                            args.batch_output_self_verify_json_file,
+                            rendered_self_verify_json,
+                        )
                     if self_verify_summary.get("status") != "ok":
                         rendered_self_verify_summary = _render_batch_output_verify_summary(
                             self_verify_summary,
@@ -1754,6 +2382,10 @@ def main() -> None:
                         against_flag="--batch-output-self-compare-against",
                         selector_flag="--batch-output-self-compare selectors",
                     )
+                    rendered_self_compare_json = _render_batch_output_compare_summary(
+                        self_compare_summary,
+                        summary=False,
+                    )
                     if args.batch_output_compare_summary_file:
                         rendered_self_compare_output = _render_batch_output_compare_summary(
                             self_compare_summary,
@@ -1762,6 +2394,11 @@ def main() -> None:
                         _write_eval_output(
                             args.batch_output_compare_summary_file,
                             rendered_self_compare_output,
+                        )
+                    if args.batch_output_compare_json_file:
+                        _write_eval_output(
+                            args.batch_output_compare_json_file,
+                            rendered_self_compare_json,
                         )
                     if self_compare_summary.get("status") != "ok":
                         rendered_self_compare_summary = _render_batch_output_compare_summary(
@@ -1783,16 +2420,28 @@ def main() -> None:
             )
             should_fail_exit = _should_fail_eval_exit(envelope=envelope, exit_policy=exit_policy)
             exit_code = 1 if should_fail_exit else 0
-            rendered_output = _render_eval_output(
+            rendered_json = _render_eval_output(
                 envelope,
-                summary=args.summary,
+                summary=False,
+                include_summary_policy=False,
+                exit_policy=exit_policy,
+                exit_code=exit_code,
+            )
+            rendered_summary = _render_eval_output(
+                envelope,
+                summary=True,
                 include_summary_policy=bool(args.summary_policy),
                 exit_policy=exit_policy,
                 exit_code=exit_code,
             )
+            rendered_output = rendered_summary if args.summary else rendered_json
 
             if args.output:
                 _write_eval_output(args.output, rendered_output)
+            if args.summary_file:
+                _write_eval_output(args.summary_file, rendered_summary)
+            if args.json_file:
+                _write_eval_output(args.json_file, rendered_json)
 
             print(rendered_output)
 
@@ -1838,13 +2487,25 @@ def main() -> None:
                 args.pack_replay_expected_runtime_error_fixture_ids,
                 option_name="--expected-runtime-error-fixture",
             )
+            normalized_expected_selected_pack_paths = _normalize_program_pack_fixture_ids(
+                args.pack_replay_expected_selected_pack_paths,
+                option_name="--expected-selected-pack",
+            )
             normalized_expected_fixture_class_counts = (
                 _normalize_program_pack_fixture_class_counts(
                     args.pack_replay_expected_fixture_class_counts
                 )
             )
+            normalized_include_pack_globs = _normalize_program_pack_pack_globs(
+                "--include-pack",
+                args.include_pack,
+            )
+            normalized_exclude_pack_globs = _normalize_program_pack_pack_globs(
+                "--exclude-pack",
+                args.exclude_pack,
+            )
 
-            pack_replay_expected_selectors = [
+            single_pack_expected_selectors = [
                 ("--expected-pack-id", normalized_expected_pack_id),
                 ("--expected-baseline-shape", args.pack_replay_expected_baseline_shape),
                 ("--expected-fixture-count", args.pack_replay_expected_fixture_count),
@@ -1883,48 +2544,130 @@ def main() -> None:
                     args.pack_replay_expected_rule_source_status,
                 ),
             ]
-            pack_replay_strict_enabled = bool(
-                args.pack_replay_strict or args.pack_replay_strict_profile is not None
-            )
-            has_pack_replay_strict_contract = bool(args.pack_replay_strict_profile is not None) or any(
-                option_value is not None for _, option_value in pack_replay_expected_selectors
-            )
-            if args.pack_replay_strict and not has_pack_replay_strict_contract:
-                raise ValueError(
-                    "--strict requires at least one --expected-* selector or --strict-profile"
-                )
-            for option_name, option_value in pack_replay_expected_selectors:
-                if option_value is not None and not pack_replay_strict_enabled:
-                    raise ValueError(f"{option_name} requires --strict")
-            for option_name, option_value in pack_replay_expected_selectors:
-                if isinstance(option_value, int) and option_value < 0:
-                    raise ValueError(f"{option_name} must be >= 0")
+            aggregate_pack_expected_selectors = [
+                ("--expected-pack-count", args.pack_replay_expected_pack_count),
+                (
+                    "--expected-total-pack-count",
+                    args.pack_replay_expected_total_pack_count,
+                ),
+                (
+                    "--expected-selected-pack",
+                    normalized_expected_selected_pack_paths,
+                ),
+            ]
+            aggregate_pack_selectors = [
+                ("--include-pack", normalized_include_pack_globs),
+                ("--exclude-pack", normalized_exclude_pack_globs),
+            ]
+            replay_target = _resolve_program_pack_replay_target(args.path)
+            if replay_target.get("kind") == "single":
+                for option_name, option_value in (
+                    aggregate_pack_expected_selectors + aggregate_pack_selectors
+                ):
+                    if option_value is not None:
+                        raise ValueError(f"{option_name} requires aggregate pack-replay target")
 
-            strict_profile = _resolve_program_pack_replay_strict_profile(
-                enabled=pack_replay_strict_enabled,
-                profile=args.pack_replay_strict_profile,
-                expected_pack_id=normalized_expected_pack_id,
-                expected_baseline_shape=args.pack_replay_expected_baseline_shape,
-                expected_fixture_count=args.pack_replay_expected_fixture_count,
-                expected_total_fixture_count=args.pack_replay_expected_total_fixture_count,
-                expected_selected_fixture_ids=normalized_expected_selected_fixture_ids,
-                expected_ok_fixture_ids=normalized_expected_ok_fixture_ids,
-                expected_expectation_mismatch_fixture_ids=normalized_expected_expectation_mismatch_fixture_ids,
-                expected_runtime_error_fixture_ids=normalized_expected_runtime_error_fixture_ids,
-                expected_fixture_class_counts=normalized_expected_fixture_class_counts,
-                expected_mismatch_count=args.pack_replay_expected_mismatch_count,
-                expected_expectation_mismatch_count=args.pack_replay_expected_expectation_mismatch_count,
-                expected_runtime_error_count=args.pack_replay_expected_runtime_error_count,
-                expected_rule_source_status=args.pack_replay_expected_rule_source_status,
-            )
-            envelope = _replay_program_pack(
-                args.path,
-                fixture_ids=args.fixture,
-                include_fixture_globs=args.include_fixture,
-                exclude_fixture_globs=args.exclude_fixture,
-                fixture_classes=args.fixture_class,
-                strict_profile=strict_profile,
-            )
+                pack_replay_strict_enabled = bool(
+                    args.pack_replay_strict or args.pack_replay_strict_profile is not None
+                )
+                has_pack_replay_strict_contract = bool(args.pack_replay_strict_profile is not None) or any(
+                    option_value is not None for _, option_value in single_pack_expected_selectors
+                )
+                if args.pack_replay_strict and not has_pack_replay_strict_contract:
+                    raise ValueError(
+                        "--strict requires at least one --expected-* selector or --strict-profile"
+                    )
+                for option_name, option_value in single_pack_expected_selectors:
+                    if option_value is not None and not pack_replay_strict_enabled:
+                        raise ValueError(f"{option_name} requires --strict")
+                for option_name, option_value in single_pack_expected_selectors:
+                    if isinstance(option_value, int) and option_value < 0:
+                        raise ValueError(f"{option_name} must be >= 0")
+
+                strict_profile = _resolve_program_pack_replay_strict_profile(
+                    enabled=pack_replay_strict_enabled,
+                    profile=args.pack_replay_strict_profile,
+                    expected_pack_id=normalized_expected_pack_id,
+                    expected_baseline_shape=args.pack_replay_expected_baseline_shape,
+                    expected_fixture_count=args.pack_replay_expected_fixture_count,
+                    expected_total_fixture_count=args.pack_replay_expected_total_fixture_count,
+                    expected_selected_fixture_ids=normalized_expected_selected_fixture_ids,
+                    expected_ok_fixture_ids=normalized_expected_ok_fixture_ids,
+                    expected_expectation_mismatch_fixture_ids=normalized_expected_expectation_mismatch_fixture_ids,
+                    expected_runtime_error_fixture_ids=normalized_expected_runtime_error_fixture_ids,
+                    expected_fixture_class_counts=normalized_expected_fixture_class_counts,
+                    expected_mismatch_count=args.pack_replay_expected_mismatch_count,
+                    expected_expectation_mismatch_count=args.pack_replay_expected_expectation_mismatch_count,
+                    expected_runtime_error_count=args.pack_replay_expected_runtime_error_count,
+                    expected_rule_source_status=args.pack_replay_expected_rule_source_status,
+                )
+                envelope = _replay_program_pack(
+                    str(replay_target["path"]),
+                    fixture_ids=args.fixture,
+                    include_fixture_globs=args.include_fixture,
+                    exclude_fixture_globs=args.exclude_fixture,
+                    fixture_classes=args.fixture_class,
+                    strict_profile=strict_profile,
+                )
+            else:
+                unsupported_options: list[str] = []
+                if args.fixture is not None:
+                    unsupported_options.append("--fixture")
+                if args.include_fixture is not None:
+                    unsupported_options.append("--include-fixture")
+                if args.exclude_fixture is not None:
+                    unsupported_options.append("--exclude-fixture")
+                if args.fixture_class is not None:
+                    unsupported_options.append("--fixture-class")
+                if args.fixture_class_summary_file is not None:
+                    unsupported_options.append("--fixture-class-summary-file")
+                if args.pack_replay_strict_profile is not None:
+                    unsupported_options.append("--strict-profile")
+                for option_name, option_value in single_pack_expected_selectors:
+                    if option_value is not None:
+                        unsupported_options.append(option_name)
+                if unsupported_options:
+                    unsupported_rendered = ", ".join(unsupported_options)
+                    raise ValueError(
+                        "aggregate pack-replay does not support "
+                        f"{unsupported_rendered}; point to a single pack directory instead"
+                    )
+
+                has_aggregate_pack_strict_contract = any(
+                    option_value is not None for _, option_value in aggregate_pack_expected_selectors
+                )
+                if args.pack_replay_strict and not has_aggregate_pack_strict_contract:
+                    raise ValueError(
+                        "--strict requires at least one --expected-pack-count, --expected-total-pack-count, or --expected-selected-pack selector for aggregate pack-replay"
+                    )
+                for option_name, option_value in aggregate_pack_expected_selectors:
+                    if option_value is not None and not args.pack_replay_strict:
+                        raise ValueError(f"{option_name} requires --strict")
+                    if isinstance(option_value, int) and option_value < 0:
+                        raise ValueError(f"{option_name} must be >= 0")
+
+                total_pack_count = len(replay_target["pack_entries"])
+                selected_pack_entries, normalized_include_pack_globs, normalized_exclude_pack_globs = (
+                    _select_program_pack_entries(
+                        replay_target["pack_entries"],
+                        include_pack_globs=normalized_include_pack_globs,
+                        exclude_pack_globs=normalized_exclude_pack_globs,
+                    )
+                )
+                strict_profile = _resolve_program_pack_collection_strict_profile(
+                    enabled=bool(args.pack_replay_strict),
+                    expected_pack_count=args.pack_replay_expected_pack_count,
+                    expected_total_pack_count=args.pack_replay_expected_total_pack_count,
+                    expected_selected_pack_paths=normalized_expected_selected_pack_paths,
+                )
+                envelope = _replay_program_pack_collection(
+                    selected_pack_entries,
+                    collection_kind=str(replay_target["kind"]),
+                    total_pack_count=total_pack_count,
+                    include_pack_globs=normalized_include_pack_globs,
+                    exclude_pack_globs=normalized_exclude_pack_globs,
+                    strict_profile=strict_profile,
+                )
             rendered_json = _render_program_pack_replay_output(envelope, summary=False)
             rendered_output = rendered_json
             if args.summary:
@@ -2127,45 +2870,69 @@ def _build_program_pack_fixture_matrix(
     return pack_root.name, baseline_rules, fixtures, "inline-statements"
 
 
+def _normalize_string_selectors(
+    selector_values: list[str] | None,
+    *,
+    option_name: str,
+) -> list[str] | None:
+    if selector_values is None:
+        return None
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for index, selector_value in enumerate(selector_values, start=1):
+        if not isinstance(selector_value, str) or not selector_value.strip():
+            raise ValueError(f"{option_name} entry #{index} must be non-empty")
+        normalized_selector_value = selector_value.strip()
+        if normalized_selector_value in seen:
+            raise ValueError(f"duplicate {option_name} selector: {normalized_selector_value}")
+        seen.add(normalized_selector_value)
+        normalized.append(normalized_selector_value)
+    return normalized
+
+
 def _normalize_program_pack_fixture_ids(
     fixture_ids: list[str] | None,
     *,
     option_name: str = "--fixture",
 ) -> list[str] | None:
-    if fixture_ids is None:
+    return _normalize_string_selectors(fixture_ids, option_name=option_name)
+
+
+def _normalize_program_pack_globs(
+    option_name: str,
+    selector_globs: list[str] | None,
+) -> list[str] | None:
+    if selector_globs is None:
         return None
 
     normalized: list[str] = []
     seen: set[str] = set()
-    for index, fixture_id in enumerate(fixture_ids, start=1):
-        if not isinstance(fixture_id, str) or not fixture_id.strip():
+    for index, selector_glob in enumerate(selector_globs, start=1):
+        if not isinstance(selector_glob, str) or not selector_glob.strip():
             raise ValueError(f"{option_name} entry #{index} must be non-empty")
-        normalized_fixture_id = fixture_id.strip()
-        if normalized_fixture_id in seen:
-            raise ValueError(f"duplicate {option_name} selector: {normalized_fixture_id}")
-        seen.add(normalized_fixture_id)
-        normalized.append(normalized_fixture_id)
+        normalized_selector_glob = selector_glob.strip()
+        if normalized_selector_glob in seen:
+            raise ValueError(f"duplicate {option_name} selector: {normalized_selector_glob}")
+        seen.add(normalized_selector_glob)
+        normalized.append(normalized_selector_glob)
     return normalized
+
 
 
 def _normalize_program_pack_fixture_globs(
     option_name: str,
     fixture_globs: list[str] | None,
 ) -> list[str] | None:
-    if fixture_globs is None:
-        return None
+    return _normalize_program_pack_globs(option_name, fixture_globs)
 
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for index, fixture_glob in enumerate(fixture_globs, start=1):
-        if not isinstance(fixture_glob, str) or not fixture_glob.strip():
-            raise ValueError(f"{option_name} entry #{index} must be non-empty")
-        normalized_fixture_glob = fixture_glob.strip()
-        if normalized_fixture_glob in seen:
-            raise ValueError(f"duplicate {option_name} selector: {normalized_fixture_glob}")
-        seen.add(normalized_fixture_glob)
-        normalized.append(normalized_fixture_glob)
-    return normalized
+
+
+def _normalize_program_pack_pack_globs(
+    option_name: str,
+    pack_globs: list[str] | None,
+) -> list[str] | None:
+    return _normalize_program_pack_globs(option_name, pack_globs)
 
 
 def _normalize_program_pack_fixture_classes(
@@ -2547,6 +3314,205 @@ def _replay_program_pack(
     return _apply_program_pack_replay_strict_profile(report, strict_profile=strict_profile)
 
 
+
+def _select_program_pack_entries(
+    pack_entries: list[tuple[str, Path]],
+    *,
+    include_pack_globs: list[str] | None = None,
+    exclude_pack_globs: list[str] | None = None,
+) -> tuple[list[tuple[str, Path]], list[str] | None, list[str] | None]:
+    normalized_include_pack_globs = _normalize_program_pack_pack_globs(
+        "--include-pack",
+        include_pack_globs,
+    )
+    normalized_exclude_pack_globs = _normalize_program_pack_pack_globs(
+        "--exclude-pack",
+        exclude_pack_globs,
+    )
+    if normalized_include_pack_globs is None and normalized_exclude_pack_globs is None:
+        return pack_entries, None, None
+
+    available_pack_paths = [display_path for display_path, _ in pack_entries]
+
+    included_pack_paths: set[str] = set()
+    if normalized_include_pack_globs is not None:
+        unmatched_include_globs = [
+            pattern
+            for pattern in normalized_include_pack_globs
+            if not any(fnmatch.fnmatchcase(pack_path, pattern) for pack_path in available_pack_paths)
+        ]
+        if unmatched_include_globs:
+            unmatched_rendered = ", ".join(unmatched_include_globs)
+            raise ValueError(f"unmatched --include-pack selector(s): {unmatched_rendered}")
+        included_pack_paths = {
+            pack_path
+            for pack_path in available_pack_paths
+            for pattern in normalized_include_pack_globs
+            if fnmatch.fnmatchcase(pack_path, pattern)
+        }
+
+    excluded_pack_paths: set[str] = set()
+    if normalized_exclude_pack_globs is not None:
+        unmatched_exclude_globs = [
+            pattern
+            for pattern in normalized_exclude_pack_globs
+            if not any(fnmatch.fnmatchcase(pack_path, pattern) for pack_path in available_pack_paths)
+        ]
+        if unmatched_exclude_globs:
+            unmatched_rendered = ", ".join(unmatched_exclude_globs)
+            raise ValueError(f"unmatched --exclude-pack selector(s): {unmatched_rendered}")
+        excluded_pack_paths = {
+            pack_path
+            for pack_path in available_pack_paths
+            for pattern in normalized_exclude_pack_globs
+            if fnmatch.fnmatchcase(pack_path, pattern)
+        }
+
+    if normalized_include_pack_globs is None:
+        selected_pack_paths = set(available_pack_paths)
+    else:
+        selected_pack_paths = set(included_pack_paths)
+    selected_pack_paths -= excluded_pack_paths
+
+    selected_pack_entries = [
+        (display_path, pack_root)
+        for display_path, pack_root in pack_entries
+        if display_path in selected_pack_paths
+    ]
+    if not selected_pack_entries:
+        selector_fragments: list[str] = []
+        if normalized_include_pack_globs is not None:
+            selector_fragments.append(f"--include-pack {', '.join(normalized_include_pack_globs)}")
+        if normalized_exclude_pack_globs is not None:
+            selector_fragments.append(f"--exclude-pack {', '.join(normalized_exclude_pack_globs)}")
+        raise ValueError(
+            "pack selectors matched zero packs after applying: "
+            + "; ".join(selector_fragments)
+        )
+
+    return (
+        selected_pack_entries,
+        normalized_include_pack_globs,
+        normalized_exclude_pack_globs,
+    )
+
+
+
+def _replay_program_pack_collection(
+    pack_entries: list[tuple[str, Path]],
+    *,
+    collection_kind: str,
+    total_pack_count: int | None = None,
+    include_pack_globs: list[str] | None = None,
+    exclude_pack_globs: list[str] | None = None,
+    strict_profile: dict[str, object] | None = None,
+) -> dict[str, object]:
+    pack_reports: list[dict[str, object]] = []
+    ok_pack_count = 0
+    error_pack_count = 0
+    matched_count = 0
+    mismatch_count = 0
+    runtime_error_count = 0
+    fixture_count = 0
+    rule_source_status_counts = {"ok": 0, "mismatch": 0}
+    fixture_class_counts = {
+        fixture_class: 0 for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES
+    }
+
+    for display_path, pack_root in pack_entries:
+        pack_report = dict(_replay_program_pack(str(pack_root)))
+        pack_report["path"] = display_path
+        pack_reports.append(pack_report)
+
+        if pack_report.get("status") == "ok":
+            ok_pack_count += 1
+        else:
+            error_pack_count += 1
+
+        rule_source_status = pack_report.get("rule_source_status")
+        if rule_source_status in rule_source_status_counts:
+            rule_source_status_counts[rule_source_status] += 1
+
+        summary_payload = pack_report.get("summary") if isinstance(pack_report.get("summary"), dict) else {}
+        fixture_count += (
+            summary_payload.get("fixture_count")
+            if isinstance(summary_payload.get("fixture_count"), int)
+            else 0
+        )
+        matched_count += (
+            summary_payload.get("matched_count")
+            if isinstance(summary_payload.get("matched_count"), int)
+            else 0
+        )
+        mismatch_count += (
+            summary_payload.get("mismatch_count")
+            if isinstance(summary_payload.get("mismatch_count"), int)
+            else 0
+        )
+        runtime_error_count += (
+            summary_payload.get("runtime_error_count")
+            if isinstance(summary_payload.get("runtime_error_count"), int)
+            else 0
+        )
+        pack_fixture_class_counts = (
+            summary_payload.get("fixture_class_counts")
+            if isinstance(summary_payload.get("fixture_class_counts"), dict)
+            else {}
+        )
+        for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES:
+            class_count = pack_fixture_class_counts.get(fixture_class)
+            if isinstance(class_count, int):
+                fixture_class_counts[fixture_class] += class_count
+
+    selected_pack_count = len(pack_reports)
+    normalized_total_pack_count = total_pack_count
+    if not isinstance(normalized_total_pack_count, int) or isinstance(normalized_total_pack_count, bool):
+        normalized_total_pack_count = selected_pack_count
+    report = {
+        "status": "ok" if error_pack_count == 0 else "error",
+        "collection_kind": collection_kind,
+        "selected_pack_paths": [display_path for display_path, _ in pack_entries],
+        "packs": pack_reports,
+        "summary": {
+            "pack_count": selected_pack_count,
+            "total_pack_count": normalized_total_pack_count,
+            "ok_pack_count": ok_pack_count,
+            "error_pack_count": error_pack_count,
+            "fixture_count": fixture_count,
+            "matched_count": matched_count,
+            "mismatch_count": mismatch_count,
+            "runtime_error_count": runtime_error_count,
+            "rule_source_status_counts": rule_source_status_counts,
+            "fixture_class_counts": fixture_class_counts,
+        },
+    }
+    if include_pack_globs is not None:
+        report["include_pack_globs"] = include_pack_globs
+    if exclude_pack_globs is not None:
+        report["exclude_pack_globs"] = exclude_pack_globs
+    return _apply_program_pack_collection_strict_profile(report, strict_profile=strict_profile)
+
+
+def _resolve_program_pack_collection_strict_profile(
+    *,
+    enabled: bool,
+    expected_pack_count: int | None,
+    expected_total_pack_count: int | None,
+    expected_selected_pack_paths: list[str] | None,
+) -> dict[str, object] | None:
+    if not enabled:
+        return None
+
+    strict_profile: dict[str, object] = {}
+    if expected_pack_count is not None:
+        strict_profile["expected_pack_count"] = expected_pack_count
+    if expected_total_pack_count is not None:
+        strict_profile["expected_total_pack_count"] = expected_total_pack_count
+    if expected_selected_pack_paths is not None:
+        strict_profile["expected_selected_pack_paths"] = expected_selected_pack_paths
+    return strict_profile
+
+
 def _resolve_program_pack_replay_strict_profile(
     *,
     enabled: bool,
@@ -2918,18 +3884,82 @@ def _apply_program_pack_replay_strict_profile(
     return strict_report
 
 
-def _discover_program_pack_program(pack_root: Path) -> Path:
+def _apply_program_pack_collection_strict_profile(
+    report: dict[str, object],
+    *,
+    strict_profile: dict[str, object] | None,
+) -> dict[str, object]:
+    if strict_profile is None:
+        return report
+
+    strict_profile_mismatches: list[dict[str, object]] = []
+    summary_payload = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+
+    pack_count = (
+        summary_payload.get("pack_count")
+        if isinstance(summary_payload.get("pack_count"), int)
+        else 0
+    )
+    expected_pack_count = strict_profile.get("expected_pack_count")
+    if isinstance(expected_pack_count, int) and not isinstance(expected_pack_count, bool):
+        if pack_count != expected_pack_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "pack_count",
+                    "expected": expected_pack_count,
+                    "actual": pack_count,
+                }
+            )
+
+    total_pack_count = (
+        summary_payload.get("total_pack_count")
+        if isinstance(summary_payload.get("total_pack_count"), int)
+        else pack_count
+    )
+    expected_total_pack_count = strict_profile.get("expected_total_pack_count")
+    if isinstance(expected_total_pack_count, int) and not isinstance(expected_total_pack_count, bool):
+        if total_pack_count != expected_total_pack_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "total_pack_count",
+                    "expected": expected_total_pack_count,
+                    "actual": total_pack_count,
+                }
+            )
+
+    selected_pack_paths = report.get("selected_pack_paths")
+    if not isinstance(selected_pack_paths, list) or not all(
+        isinstance(pack_path, str) for pack_path in selected_pack_paths
+    ):
+        selected_pack_paths = []
+    expected_selected_pack_paths = strict_profile.get("expected_selected_pack_paths")
+    if isinstance(expected_selected_pack_paths, list) and all(
+        isinstance(pack_path, str) for pack_path in expected_selected_pack_paths
+    ):
+        if selected_pack_paths != expected_selected_pack_paths:
+            strict_profile_mismatches.append(
+                {
+                    "field": "selected_pack_paths",
+                    "expected": expected_selected_pack_paths,
+                    "actual": selected_pack_paths,
+                }
+            )
+
+    replay_status = report.get("status") if isinstance(report.get("status"), str) else "error"
+    strict_report = dict(report)
+    strict_report["replay_status"] = replay_status
+    strict_report["status"] = (
+        "ok" if replay_status == "ok" and not strict_profile_mismatches else "error"
+    )
+    strict_report["strict_profile"] = strict_profile
+    strict_report["strict_profile_mismatches"] = strict_profile_mismatches
+    return strict_report
+
+
+def _program_pack_directory_signature(pack_root: Path) -> tuple[list[Path], list[Path]]:
     program_paths = sorted(
         path for path in pack_root.iterdir() if path.is_file() and path.suffix.lower() == ".erz"
     )
-    if not program_paths:
-        raise ValueError("program pack directory must contain one .erz program file")
-    if len(program_paths) > 1:
-        raise ValueError("program pack directory must contain exactly one .erz program file")
-    return program_paths[0]
-
-
-def _discover_program_pack_baseline(pack_root: Path) -> Path:
     baseline_paths = sorted(
         path
         for path in pack_root.iterdir()
@@ -2937,6 +3967,32 @@ def _discover_program_pack_baseline(pack_root: Path) -> Path:
         and path.suffix.lower() == ".json"
         and (path.name == "baseline.json" or path.name.endswith(".baseline.json"))
     )
+    return program_paths, baseline_paths
+
+
+
+def _classify_program_pack_directory(pack_root: Path) -> str:
+    program_paths, baseline_paths = _program_pack_directory_signature(pack_root)
+    if len(program_paths) == 1 and len(baseline_paths) == 1:
+        return "pack"
+    if not program_paths and not baseline_paths:
+        return "none"
+    return "invalid"
+
+
+
+def _discover_program_pack_program(pack_root: Path) -> Path:
+    program_paths, _ = _program_pack_directory_signature(pack_root)
+    if not program_paths:
+        raise ValueError("program pack directory must contain one .erz program file")
+    if len(program_paths) > 1:
+        raise ValueError("program pack directory must contain exactly one .erz program file")
+    return program_paths[0]
+
+
+
+def _discover_program_pack_baseline(pack_root: Path) -> Path:
+    _, baseline_paths = _program_pack_directory_signature(pack_root)
     if not baseline_paths:
         raise ValueError(
             "program pack directory must contain one baseline JSON file named baseline.json or *.baseline.json"
@@ -2946,6 +4002,207 @@ def _discover_program_pack_baseline(pack_root: Path) -> Path:
             "program pack directory must contain exactly one baseline JSON file named baseline.json or *.baseline.json"
         )
     return baseline_paths[0]
+
+
+
+def _discover_program_pack_collection_directory(pack_root: Path) -> list[tuple[str, Path]]:
+    pack_entries: list[tuple[str, Path]] = []
+    invalid_children: list[str] = []
+
+    for child in sorted(path for path in pack_root.iterdir() if path.is_dir()):
+        if child.name.startswith("."):
+            continue
+        classification = _classify_program_pack_directory(child)
+        if classification == "pack":
+            pack_entries.append((child.name, child))
+        elif classification == "invalid":
+            invalid_children.append(child.name)
+
+    if invalid_children:
+        invalid_rendered = ", ".join(invalid_children)
+        raise ValueError(
+            "program pack collection contains invalid child directories: "
+            f"{invalid_rendered}"
+        )
+    if not pack_entries:
+        raise ValueError(
+            "pack-replay directory must be a program pack or contain at least one child program pack directory"
+        )
+    return pack_entries
+
+
+
+def _load_program_pack_index(index_path: Path) -> list[tuple[str, Path]]:
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"pack index '{index_path.name}' must contain valid JSON: {exc}") from exc
+
+    if isinstance(payload, dict):
+        entries = payload.get("packs")
+    else:
+        entries = payload
+
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("pack index must contain a non-empty `packs` list")
+
+    resolved_entries: list[tuple[str, Path]] = []
+    seen_paths: set[Path] = set()
+    for index, entry in enumerate(entries, start=1):
+        if isinstance(entry, str):
+            raw_path = entry.strip()
+        elif isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            raw_path = entry["path"].strip()
+        else:
+            raise ValueError(
+                f"pack index entry #{index} must be a string path or object with string `path`"
+            )
+
+        if not raw_path:
+            raise ValueError(f"pack index entry #{index} must be non-empty")
+
+        candidate = (index_path.parent / raw_path).resolve()
+        if candidate in seen_paths:
+            raise ValueError(f"duplicate pack index entry: {raw_path}")
+        seen_paths.add(candidate)
+
+        if not candidate.exists() or not candidate.is_dir():
+            raise ValueError(
+                f"pack index entry #{index} must point to an existing directory: {raw_path}"
+            )
+
+        classification = _classify_program_pack_directory(candidate)
+        if classification != "pack":
+            raise ValueError(
+                f"pack index entry #{index} must point to a valid program pack directory: {raw_path}"
+            )
+
+        resolved_entries.append((raw_path, candidate))
+
+    return resolved_entries
+
+
+
+def _resolve_program_pack_replay_target(path: str) -> dict[str, object]:
+    candidate = Path(path)
+    if not candidate.exists():
+        raise ValueError(
+            "pack-replay path must point to an existing directory or pack index JSON file"
+        )
+
+    if candidate.is_file():
+        if candidate.suffix.lower() != ".json":
+            raise ValueError(
+                "pack-replay path must point to an existing directory or pack index JSON file"
+            )
+        return {
+            "kind": "index",
+            "pack_entries": _load_program_pack_index(candidate),
+        }
+
+    if not candidate.is_dir():
+        raise ValueError(
+            "pack-replay path must point to an existing directory or pack index JSON file"
+        )
+
+    classification = _classify_program_pack_directory(candidate)
+    if classification == "pack":
+        return {
+            "kind": "single",
+            "path": candidate,
+        }
+    if classification == "invalid":
+        _discover_program_pack_program(candidate)
+        _discover_program_pack_baseline(candidate)
+        raise AssertionError("unreachable invalid program-pack classification")
+
+    return {
+        "kind": "directory",
+        "pack_entries": _discover_program_pack_collection_directory(candidate),
+    }
+
+
+def _load_eval_batch_index(index_path: Path) -> list[tuple[str, Path]]:
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"batch index '{index_path.name}' must contain valid JSON: {exc}") from exc
+
+    if isinstance(payload, dict):
+        entries = payload.get("events")
+    else:
+        entries = payload
+
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("batch index must contain a non-empty `events` list")
+
+    resolved_entries: list[tuple[str, Path]] = []
+    seen_paths: set[Path] = set()
+    seen_event_names: set[str] = set()
+    for index, entry in enumerate(entries, start=1):
+        if isinstance(entry, str):
+            raw_path = entry.strip()
+        elif isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            raw_path = entry["path"].strip()
+        else:
+            raise ValueError(
+                f"batch index entry #{index} must be a string path or object with string `path`"
+            )
+
+        if not raw_path:
+            raise ValueError(f"batch index entry #{index} must be non-empty")
+
+        candidate = (index_path.parent / raw_path).resolve()
+        if candidate in seen_paths:
+            raise ValueError(f"duplicate batch index entry: {raw_path}")
+        seen_paths.add(candidate)
+
+        if not candidate.exists() or not candidate.is_file():
+            raise ValueError(
+                f"batch index entry #{index} must point to an existing JSON file: {raw_path}"
+            )
+        if candidate.suffix.lower() != ".json":
+            raise ValueError(
+                f"batch index entry #{index} must point to a .json file: {raw_path}"
+            )
+
+        event_name = candidate.name
+        if event_name in seen_event_names:
+            raise ValueError(
+                "batch index entries must resolve to unique event filenames; "
+                f"duplicate filename: {event_name}"
+            )
+        seen_event_names.add(event_name)
+
+        resolved_entries.append((event_name, candidate))
+
+    return resolved_entries
+
+
+
+def _resolve_eval_batch_event_entries(batch_path: str) -> list[tuple[str, Path]]:
+    candidate = Path(batch_path)
+    if not candidate.exists():
+        raise ValueError("--batch must point to an existing directory or batch index JSON file")
+
+    if candidate.is_file():
+        if candidate.suffix.lower() != ".json":
+            raise ValueError("--batch must point to an existing directory or batch index JSON file")
+        return _load_eval_batch_index(candidate)
+
+    if not candidate.is_dir():
+        raise ValueError("--batch must point to an existing directory or batch index JSON file")
+
+    event_paths = sorted(
+        path
+        for path in candidate.iterdir()
+        if path.is_file() and path.suffix.lower() == ".json"
+    )
+    if not event_paths:
+        raise ValueError("--batch directory must contain at least one .json file")
+
+    return [(event_path.name, event_path) for event_path in event_paths]
+
 
 
 def _extract_eval_program_components(source: str) -> tuple[list[dict[str, object]], dict[str, object]]:
@@ -2996,25 +4253,18 @@ def _eval_program_batch_envelope(
     sidecar_refs: dict[str, str] | None = None,
     include_rule_counts: bool = False,
     include_action_kind_counts: bool = False,
+    strict_profile: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    batch_root = Path(batch_dir)
-    if not batch_root.exists() or not batch_root.is_dir():
-        raise ValueError("--batch must point to an existing directory")
+    event_entries = _resolve_eval_batch_event_entries(batch_dir)
+    total_event_count = len(event_entries)
+    total_event_names = [event_name for event_name, _event_path in event_entries]
 
-    event_paths = sorted(
-        path
-        for path in batch_root.iterdir()
-        if path.is_file() and path.suffix.lower() == ".json"
-    )
-    if not event_paths:
-        raise ValueError("--batch directory must contain at least one .json file")
-
-    event_paths = _filter_batch_event_paths(
-        event_paths,
+    event_entries = _filter_batch_event_entries(
+        event_entries,
         include_glob=include_glob,
         exclude_glob=exclude_glob,
     )
-    if not event_paths:
+    if not event_entries:
         include_label = include_glob if include_glob is not None else "<none>"
         exclude_label = exclude_glob if exclude_glob is not None else "<none>"
         raise ValueError(
@@ -3033,12 +4283,12 @@ def _eval_program_batch_envelope(
     rule_counts: dict[str, int] = {}
     action_kind_counts: dict[str, int] = {}
 
-    for event_path in event_paths:
+    for event_name, event_path in event_entries:
         payload_text = event_path.read_text(encoding="utf-8")
         try:
             event = json.loads(payload_text)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"--batch event '{event_path.name}' must contain valid JSON: {exc}") from exc
+            raise ValueError(f"--batch event '{event_name}' must contain valid JSON: {exc}") from exc
 
         envelope = eval_policies_envelope(event, rules, refs=merged_refs)
 
@@ -3049,7 +4299,7 @@ def _eval_program_batch_envelope(
         has_error = isinstance(envelope.get("error"), dict)
 
         event_entry: dict[str, object] = {
-            "event": event_path.name,
+            "event": event_name,
             "actions": actions if isinstance(actions, list) else [],
             "trace": trace if isinstance(trace, list) else [],
         }
@@ -3080,6 +4330,7 @@ def _eval_program_batch_envelope(
 
     summary = {
         "event_count": len(events),
+        "total_event_count": total_event_count,
         "error_count": error_count,
         "no_action_count": no_action_count,
         "action_count": total_action_count,
@@ -3095,35 +4346,154 @@ def _eval_program_batch_envelope(
             for action_kind in sorted(action_kind_counts)
         }
 
-    return {
+    report = {
         "events": events,
         "summary": summary,
     }
+    if isinstance(strict_profile, dict) and isinstance(
+        strict_profile.get("expected_total_event_names"), list
+    ):
+        report["total_event_names"] = total_event_names
+    return _apply_eval_batch_strict_profile(report, strict_profile=strict_profile)
 
 
-def _filter_batch_event_paths(
-    event_paths: list[Path],
+def _eval_batch_replay_status(report: dict[str, object]) -> str:
+    summary_payload = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    error_count = (
+        summary_payload.get("error_count")
+        if isinstance(summary_payload.get("error_count"), int)
+        else 0
+    )
+    return "error" if error_count > 0 else "ok"
+
+
+def _apply_eval_batch_strict_profile(
+    report: dict[str, object],
+    *,
+    strict_profile: dict[str, object] | None,
+) -> dict[str, object]:
+    if strict_profile is None:
+        return report
+
+    strict_profile_mismatches: list[dict[str, object]] = []
+    summary_payload = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+
+    event_count = (
+        summary_payload.get("event_count")
+        if isinstance(summary_payload.get("event_count"), int)
+        else 0
+    )
+    expected_event_count = strict_profile.get("expected_event_count")
+    if isinstance(expected_event_count, int) and not isinstance(expected_event_count, bool):
+        if event_count != expected_event_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "event_count",
+                    "expected": expected_event_count,
+                    "actual": event_count,
+                }
+            )
+
+    total_event_count = (
+        summary_payload.get("total_event_count")
+        if isinstance(summary_payload.get("total_event_count"), int)
+        else event_count
+    )
+    expected_total_event_count = strict_profile.get("expected_total_event_count")
+    if isinstance(expected_total_event_count, int) and not isinstance(expected_total_event_count, bool):
+        if total_event_count != expected_total_event_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "total_event_count",
+                    "expected": expected_total_event_count,
+                    "actual": total_event_count,
+                }
+            )
+
+    actual_total_event_names = report.get("total_event_names")
+    if not isinstance(actual_total_event_names, list) or not all(
+        isinstance(event_name, str) for event_name in actual_total_event_names
+    ):
+        actual_total_event_names = []
+
+    expected_total_event_names = strict_profile.get("expected_total_event_names")
+    if isinstance(expected_total_event_names, list) and all(
+        isinstance(event_name, str) for event_name in expected_total_event_names
+    ):
+        if actual_total_event_names != expected_total_event_names:
+            strict_profile_mismatches.append(
+                {
+                    "field": "total_event_names",
+                    "expected": expected_total_event_names,
+                    "actual": actual_total_event_names,
+                }
+            )
+
+    actual_selected_event_names = report.get("selected_event_names")
+    if not isinstance(actual_selected_event_names, list) or not all(
+        isinstance(event_name, str) for event_name in actual_selected_event_names
+    ):
+        events_payload = report.get("events") if isinstance(report.get("events"), list) else []
+        actual_selected_event_names = [
+            event_entry["event"]
+            for event_entry in events_payload
+            if isinstance(event_entry, dict) and isinstance(event_entry.get("event"), str)
+        ]
+
+    expected_selected_event_names = strict_profile.get("expected_selected_event_names")
+    if isinstance(expected_selected_event_names, list) and all(
+        isinstance(event_name, str) for event_name in expected_selected_event_names
+    ):
+        if actual_selected_event_names != expected_selected_event_names:
+            strict_profile_mismatches.append(
+                {
+                    "field": "selected_event_names",
+                    "expected": expected_selected_event_names,
+                    "actual": actual_selected_event_names,
+                }
+            )
+
+    replay_status = _eval_batch_replay_status(report)
+    strict_report = dict(report)
+    if isinstance(expected_total_event_names, list) and "total_event_names" not in strict_report:
+        strict_report["total_event_names"] = actual_total_event_names
+    if (
+        isinstance(expected_selected_event_names, list)
+        and "selected_event_names" not in strict_report
+    ):
+        strict_report["selected_event_names"] = actual_selected_event_names
+    strict_report["replay_status"] = replay_status
+    strict_report["status"] = (
+        "ok" if replay_status == "ok" and not strict_profile_mismatches else "error"
+    )
+    strict_report["strict_profile"] = strict_profile
+    strict_report["strict_profile_mismatches"] = strict_profile_mismatches
+    return strict_report
+
+
+def _filter_batch_event_entries(
+    event_entries: list[tuple[str, Path]],
     *,
     include_glob: str | None,
     exclude_glob: str | None,
-) -> list[Path]:
-    filtered_paths = list(event_paths)
+) -> list[tuple[str, Path]]:
+    filtered_entries = list(event_entries)
 
     if include_glob is not None:
-        filtered_paths = [
-            event_path
-            for event_path in filtered_paths
-            if fnmatch.fnmatchcase(event_path.name, include_glob)
+        filtered_entries = [
+            (event_name, event_path)
+            for event_name, event_path in filtered_entries
+            if fnmatch.fnmatchcase(event_name, include_glob)
         ]
 
     if exclude_glob is not None:
-        filtered_paths = [
-            event_path
-            for event_path in filtered_paths
-            if not fnmatch.fnmatchcase(event_path.name, exclude_glob)
+        filtered_entries = [
+            (event_name, event_path)
+            for event_name, event_path in filtered_entries
+            if not fnmatch.fnmatchcase(event_name, exclude_glob)
         ]
 
-    return filtered_paths
+    return filtered_entries
 
 
 def _filter_batch_artifact_paths(
@@ -3219,6 +4589,29 @@ def _write_batch_output_artifacts(
     )
 
 
+def _resolve_eval_batch_strict_profile(
+    *,
+    enabled: bool,
+    expected_event_count: int | None,
+    expected_total_event_count: int | None,
+    expected_total_event_names: list[str] | None,
+    expected_selected_event_names: list[str] | None,
+) -> dict[str, object] | None:
+    if not enabled:
+        return None
+
+    strict_profile: dict[str, object] = {}
+    if expected_event_count is not None:
+        strict_profile["expected_event_count"] = expected_event_count
+    if expected_total_event_count is not None:
+        strict_profile["expected_total_event_count"] = expected_total_event_count
+    if expected_total_event_names is not None:
+        strict_profile["expected_total_event_names"] = expected_total_event_names
+    if expected_selected_event_names is not None:
+        strict_profile["expected_selected_event_names"] = expected_selected_event_names
+    return strict_profile
+
+
 def _resolve_batch_output_verify_strict_profile(
     *,
     enabled: bool,
@@ -3239,6 +4632,7 @@ def _resolve_batch_output_verify_strict_profile(
     expected_event_artifact_count: int | None,
     expected_manifest_entry_count: int | None,
     expected_selected_artifact_count: int | None,
+    expected_selected_artifacts: list[str] | None,
     expected_manifest_selected_entry_count: int | None,
     require_run_id: bool,
 ) -> dict[str, object] | None:
@@ -3314,6 +4708,9 @@ def _resolve_batch_output_verify_strict_profile(
     if expected_selected_artifact_count is not None:
         strict_profile["expected_selected_artifact_count"] = expected_selected_artifact_count
 
+    if expected_selected_artifacts is not None:
+        strict_profile["expected_selected_artifacts"] = expected_selected_artifacts
+
     if expected_manifest_selected_entry_count is not None:
         strict_profile["expected_manifest_selected_entry_count"] = expected_manifest_selected_entry_count
 
@@ -3338,6 +4735,8 @@ def _resolve_batch_output_compare_strict_profile(
     expected_metadata_mismatches_count: int | None,
     expected_selected_baseline_count: int | None,
     expected_selected_candidate_count: int | None,
+    expected_selected_baseline_artifacts: list[str] | None,
+    expected_selected_candidate_artifacts: list[str] | None,
 ) -> dict[str, object] | None:
     if not enabled:
         return None
@@ -3392,6 +4791,10 @@ def _resolve_batch_output_compare_strict_profile(
         strict_profile["expected_selected_baseline_count"] = expected_selected_baseline_count
     if expected_selected_candidate_count is not None:
         strict_profile["expected_selected_candidate_count"] = expected_selected_candidate_count
+    if expected_selected_baseline_artifacts is not None:
+        strict_profile["expected_selected_baseline_artifacts"] = expected_selected_baseline_artifacts
+    if expected_selected_candidate_artifacts is not None:
+        strict_profile["expected_selected_candidate_artifacts"] = expected_selected_candidate_artifacts
 
     return strict_profile
 
@@ -3618,6 +5021,19 @@ def _verify_batch_output_artifacts(
                     }
                 )
 
+        expected_selected_artifacts = strict_profile.get("expected_selected_artifacts")
+        if isinstance(expected_selected_artifacts, list) and all(
+            isinstance(artifact_path, str) for artifact_path in expected_selected_artifacts
+        ):
+            if selected_artifacts != expected_selected_artifacts:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "selected_artifacts",
+                        "expected": expected_selected_artifacts,
+                        "actual": selected_artifacts,
+                    }
+                )
+
         expected_manifest_selected_entry_count = strict_profile.get(
             "expected_manifest_selected_entry_count"
         )
@@ -3803,6 +5219,11 @@ def _verify_batch_output_artifacts(
         "selected_artifacts_count": checked_count,
         "selected_manifest_entries_count": selected_manifest_entry_count,
     }
+
+    if isinstance(strict_profile, dict) and isinstance(
+        strict_profile.get("expected_selected_artifacts"), list
+    ):
+        verify_result["selected_artifacts"] = selected_artifacts
 
     if strict_profile is not None:
         verify_result["strict_profile"] = strict_profile
@@ -4293,6 +5714,36 @@ def _compare_batch_output_artifacts(
                     }
                 )
 
+        expected_selected_baseline_artifacts = strict_profile.get(
+            "expected_selected_baseline_artifacts"
+        )
+        if isinstance(expected_selected_baseline_artifacts, list) and all(
+            isinstance(artifact_path, str) for artifact_path in expected_selected_baseline_artifacts
+        ):
+            if selected_baseline_artifacts != expected_selected_baseline_artifacts:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "selected_baseline_artifacts",
+                        "expected": expected_selected_baseline_artifacts,
+                        "actual": selected_baseline_artifacts,
+                    }
+                )
+
+        expected_selected_candidate_artifacts = strict_profile.get(
+            "expected_selected_candidate_artifacts"
+        )
+        if isinstance(expected_selected_candidate_artifacts, list) and all(
+            isinstance(artifact_path, str) for artifact_path in expected_selected_candidate_artifacts
+        ):
+            if selected_candidate_artifacts != expected_selected_candidate_artifacts:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "selected_candidate_artifacts",
+                        "expected": expected_selected_candidate_artifacts,
+                        "actual": selected_candidate_artifacts,
+                    }
+                )
+
         status = "error" if strict_profile_mismatches else "ok"
 
     compare_result: dict[str, object] = {
@@ -4314,6 +5765,14 @@ def _compare_batch_output_artifacts(
             "selected_candidate_artifacts_count": len(selected_candidate_artifacts),
         }
     )
+    if isinstance(strict_profile, dict) and isinstance(
+        strict_profile.get("expected_selected_baseline_artifacts"), list
+    ):
+        compare_result["selected_baseline_artifacts"] = selected_baseline_artifacts
+    if isinstance(strict_profile, dict) and isinstance(
+        strict_profile.get("expected_selected_candidate_artifacts"), list
+    ):
+        compare_result["selected_candidate_artifacts"] = selected_candidate_artifacts
     if strict_profile is not None:
         compare_result["strict_profile"] = strict_profile
         compare_result["strict_profile_mismatches"] = strict_profile_mismatches
@@ -4502,6 +5961,10 @@ def _eval_envelope_has_no_actions(envelope: dict[str, object]) -> bool:
 
 
 def _should_fail_eval_exit(*, envelope: dict[str, object], exit_policy: str) -> bool:
+    strict_profile_mismatches = envelope.get("strict_profile_mismatches")
+    if isinstance(strict_profile_mismatches, list) and strict_profile_mismatches:
+        return True
+
     eval_entries = _iter_eval_envelopes(envelope)
 
     if exit_policy == "default":
@@ -4565,6 +6028,20 @@ def _write_eval_output(path: str, rendered_output: str) -> None:
     Path(path).write_text(f"{rendered_output}\n", encoding="utf-8")
 
 
+def _path_is_within_directory(path: str, directory: str) -> bool:
+    candidate = Path(path).resolve()
+    root = Path(directory).resolve()
+    try:
+        candidate.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _paths_are_same_location(left: str, right: str) -> bool:
+    return Path(left).resolve() == Path(right).resolve()
+
+
 def _write_batch_output_summary_file(path: str, envelope: dict[str, object]) -> None:
     rendered_envelope = json.dumps(envelope, separators=(",", ":"), ensure_ascii=False)
     Path(path).write_text(f"{rendered_envelope}\n", encoding="utf-8")
@@ -4572,6 +6049,118 @@ def _write_batch_output_summary_file(path: str, envelope: dict[str, object]) -> 
 
 def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: bool) -> str:
     if summary:
+        packs_payload = envelope.get("packs")
+        if isinstance(packs_payload, list):
+            summary_payload = envelope.get("summary") if isinstance(envelope.get("summary"), dict) else {}
+            pack_count = (
+                summary_payload.get("pack_count")
+                if isinstance(summary_payload.get("pack_count"), int)
+                else len(packs_payload)
+            )
+            total_pack_count = (
+                summary_payload.get("total_pack_count")
+                if isinstance(summary_payload.get("total_pack_count"), int)
+                else pack_count
+            )
+            ok_pack_count = (
+                summary_payload.get("ok_pack_count")
+                if isinstance(summary_payload.get("ok_pack_count"), int)
+                else 0
+            )
+            error_pack_count = (
+                summary_payload.get("error_pack_count")
+                if isinstance(summary_payload.get("error_pack_count"), int)
+                else max(pack_count - ok_pack_count, 0)
+            )
+            fixture_count = (
+                summary_payload.get("fixture_count")
+                if isinstance(summary_payload.get("fixture_count"), int)
+                else 0
+            )
+            matched_count = (
+                summary_payload.get("matched_count")
+                if isinstance(summary_payload.get("matched_count"), int)
+                else 0
+            )
+            mismatch_count = (
+                summary_payload.get("mismatch_count")
+                if isinstance(summary_payload.get("mismatch_count"), int)
+                else 0
+            )
+            runtime_error_count = (
+                summary_payload.get("runtime_error_count")
+                if isinstance(summary_payload.get("runtime_error_count"), int)
+                else 0
+            )
+            rule_source_status_counts = (
+                summary_payload.get("rule_source_status_counts")
+                if isinstance(summary_payload.get("rule_source_status_counts"), dict)
+                else {}
+            )
+            fixture_class_counts = (
+                summary_payload.get("fixture_class_counts")
+                if isinstance(summary_payload.get("fixture_class_counts"), dict)
+                else {}
+            )
+            ok_rule_source_count = (
+                rule_source_status_counts.get("ok")
+                if isinstance(rule_source_status_counts.get("ok"), int)
+                else 0
+            )
+            mismatch_rule_source_count = (
+                rule_source_status_counts.get("mismatch")
+                if isinstance(rule_source_status_counts.get("mismatch"), int)
+                else 0
+            )
+            ok_fixture_count = (
+                fixture_class_counts.get("ok")
+                if isinstance(fixture_class_counts.get("ok"), int)
+                else matched_count
+            )
+            expectation_mismatch_fixture_count = (
+                fixture_class_counts.get("expectation_mismatch")
+                if isinstance(fixture_class_counts.get("expectation_mismatch"), int)
+                else mismatch_count - runtime_error_count
+            )
+            runtime_error_fixture_class_count = (
+                fixture_class_counts.get("runtime_error")
+                if isinstance(fixture_class_counts.get("runtime_error"), int)
+                else runtime_error_count
+            )
+            status = envelope.get("status") if isinstance(envelope.get("status"), str) else "error"
+            replay_status = (
+                envelope.get("replay_status")
+                if isinstance(envelope.get("replay_status"), str)
+                else None
+            )
+            strict_profile_mismatches = envelope.get("strict_profile_mismatches")
+            overall_line = f"status={status} "
+            if isinstance(replay_status, str):
+                overall_line = f"{overall_line}replay_status={replay_status} "
+            overall_line = f"{overall_line}packs={pack_count} "
+            if total_pack_count != pack_count:
+                overall_line = f"{overall_line}total_packs={total_pack_count} "
+            overall_line = (
+                f"{overall_line}ok_packs={ok_pack_count} "
+                f"error_packs={error_pack_count} fixtures={fixture_count} matched={matched_count} "
+                f"mismatches={mismatch_count} runtime_errors={runtime_error_count} "
+                f"rule_sources=ok:{ok_rule_source_count},mismatch:{mismatch_rule_source_count} "
+                f"fixture_classes=ok:{ok_fixture_count},expectation_mismatch:{expectation_mismatch_fixture_count},"
+                f"runtime_error:{runtime_error_fixture_class_count}"
+            )
+            if isinstance(strict_profile_mismatches, list):
+                overall_line = f"{overall_line} strict_mismatches={len(strict_profile_mismatches)}"
+            lines = [overall_line]
+            for index, pack_envelope in enumerate(packs_payload, start=1):
+                if not isinstance(pack_envelope, dict):
+                    continue
+                prefix = f"pack[{index}]"
+                pack_path = pack_envelope.get("path")
+                if isinstance(pack_path, str):
+                    prefix = f"{prefix} path={pack_path}"
+                lines.append(f"{prefix} {_render_program_pack_replay_output(pack_envelope, summary=True)}")
+            return "\n".join(lines)
+
         summary_payload = envelope.get("summary") if isinstance(envelope.get("summary"), dict) else {}
         fixture_count = (
             summary_payload.get("fixture_count")
@@ -4661,6 +6250,11 @@ def _render_eval_summary(envelope: dict[str, object]) -> str:
         summary = envelope.get("summary") if isinstance(envelope.get("summary"), dict) else {}
 
         event_count = summary.get("event_count") if isinstance(summary.get("event_count"), int) else len(events)
+        total_event_count = (
+            summary.get("total_event_count")
+            if isinstance(summary.get("total_event_count"), int)
+            else event_count
+        )
         error_count = summary.get("error_count") if isinstance(summary.get("error_count"), int) else 0
         no_action_count = (
             summary.get("no_action_count") if isinstance(summary.get("no_action_count"), int) else 0
@@ -4668,11 +6262,25 @@ def _render_eval_summary(envelope: dict[str, object]) -> str:
         action_count = summary.get("action_count") if isinstance(summary.get("action_count"), int) else 0
         trace_count = summary.get("trace_count") if isinstance(summary.get("trace_count"), int) else 0
 
-        status = "error" if error_count > 0 else "ok"
-        return (
-            f"status={status} events={event_count} errors={error_count} "
-            f"no_actions={no_action_count} actions={action_count} trace={trace_count}"
+        replay_status = envelope.get("replay_status") if isinstance(envelope.get("replay_status"), str) else None
+        status = envelope.get("status") if isinstance(envelope.get("status"), str) else _eval_batch_replay_status(envelope)
+        rendered = (
+            f"status={status} events={event_count} "
+            f"errors={error_count} no_actions={no_action_count} "
+            f"actions={action_count} trace={trace_count}"
         )
+        if replay_status is not None:
+            rendered = (
+                f"status={status} replay_status={replay_status} "
+                f"events={event_count} errors={error_count} "
+                f"no_actions={no_action_count} actions={action_count} trace={trace_count}"
+            )
+        if total_event_count != event_count:
+            rendered = f"{rendered} total_events={total_event_count}"
+        strict_profile_mismatches = envelope.get("strict_profile_mismatches")
+        if isinstance(strict_profile_mismatches, list):
+            rendered = f"{rendered} strict_mismatches={len(strict_profile_mismatches)}"
+        return rendered
 
     actions = envelope.get("actions")
     trace = envelope.get("trace")

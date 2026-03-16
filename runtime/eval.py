@@ -246,6 +246,11 @@ def _parse_clause(clause: str) -> _Clause:
         path = _parse_payload_path(raw_path, operator="payload_path_exists")
         return _Clause(text=clause, kind="payload_path_exists", path=path)
 
+    if clause.startswith("payload_path_not_exists:"):
+        raw_path = clause.partition(":")[2]
+        path = _parse_payload_path(raw_path, operator="payload_path_not_exists")
+        return _Clause(text=clause, kind="payload_path_not_exists", path=path)
+
     if clause.startswith("payload_path_equals:"):
         spec = clause.partition(":")[2]
         raw_path, separator, raw_value = spec.partition("=")
@@ -257,6 +262,21 @@ def _parse_clause(clause: str) -> _Clause:
         return _Clause(
             text=clause,
             kind="payload_path_equals",
+            path=path,
+            value=_parse_clause_scalar(raw_value),
+        )
+
+    if clause.startswith("payload_path_not_equals:"):
+        spec = clause.partition(":")[2]
+        raw_path, separator, raw_value = spec.partition("=")
+        if not separator or not raw_value:
+            raise TypeError(
+                "clause 'payload_path_not_equals' requires a non-empty '<path>=<value>' pair"
+            )
+        path = _parse_payload_path(raw_path, operator="payload_path_not_equals")
+        return _Clause(
+            text=clause,
+            kind="payload_path_not_equals",
             path=path,
             value=_parse_clause_scalar(raw_value),
         )
@@ -276,7 +296,74 @@ def _parse_clause(clause: str) -> _Clause:
             value=_parse_clause_members(raw_members, operator="payload_path_in"),
         )
 
-    for operator in ("payload_path_startswith", "payload_path_contains"):
+    if clause.startswith("payload_path_not_in:"):
+        spec = clause.partition(":")[2]
+        raw_path, separator, raw_members = spec.partition("=")
+        if not separator or not raw_members:
+            raise TypeError(
+                "clause 'payload_path_not_in' requires a non-empty '<path>=<csv-or-json-list>' pair"
+            )
+        path = _parse_payload_path(raw_path, operator="payload_path_not_in")
+        return _Clause(
+            text=clause,
+            kind="payload_path_not_in",
+            path=path,
+            value=_parse_clause_members(raw_members, operator="payload_path_not_in"),
+        )
+
+    if clause.startswith("payload_path_any_in:"):
+        spec = clause.partition(":")[2]
+        raw_path, separator, raw_members = spec.partition("=")
+        if not separator or not raw_members:
+            raise TypeError(
+                "clause 'payload_path_any_in' requires a non-empty '<path>=<csv-or-json-list>' pair"
+            )
+        path = _parse_payload_path(raw_path, operator="payload_path_any_in")
+        return _Clause(
+            text=clause,
+            kind="payload_path_any_in",
+            path=path,
+            value=_parse_clause_members(raw_members, operator="payload_path_any_in"),
+        )
+
+    if clause.startswith("payload_path_all_in:"):
+        spec = clause.partition(":")[2]
+        raw_path, separator, raw_members = spec.partition("=")
+        if not separator or not raw_members:
+            raise TypeError(
+                "clause 'payload_path_all_in' requires a non-empty '<path>=<csv-or-json-list>' pair"
+            )
+        path = _parse_payload_path(raw_path, operator="payload_path_all_in")
+        return _Clause(
+            text=clause,
+            kind="payload_path_all_in",
+            path=path,
+            value=_parse_clause_members(raw_members, operator="payload_path_all_in"),
+        )
+
+    if clause.startswith("payload_path_none_in:"):
+        spec = clause.partition(":")[2]
+        raw_path, separator, raw_members = spec.partition("=")
+        if not separator or not raw_members:
+            raise TypeError(
+                "clause 'payload_path_none_in' requires a non-empty '<path>=<csv-or-json-list>' pair"
+            )
+        path = _parse_payload_path(raw_path, operator="payload_path_none_in")
+        return _Clause(
+            text=clause,
+            kind="payload_path_none_in",
+            path=path,
+            value=_parse_clause_members(raw_members, operator="payload_path_none_in"),
+        )
+
+    for operator in (
+        "payload_path_startswith",
+        "payload_path_contains",
+        "payload_path_endswith",
+        "payload_path_not_startswith",
+        "payload_path_not_contains",
+        "payload_path_not_endswith",
+    ):
         if clause.startswith(f"{operator}:"):
             spec = clause.partition(":")[2]
             raw_path, separator, raw_value = spec.partition("=")
@@ -331,7 +418,7 @@ def _parse_clause(clause: str) -> _Clause:
 
     raise TypeError(
         "unsupported clause "
-        f"'{clause}'. Supported clauses: event_type_present, event_type_equals:<value>, payload_has:<key>, payload_path_exists:<path>, payload_path_equals:<path>=<value>, payload_path_in:<path>=<csv-or-json-list>, payload_path_startswith:<path>=<string>, payload_path_contains:<path>=<string>, payload_path_len_gt:<path>=<integer>, payload_path_len_gte:<path>=<integer>, payload_path_len_lt:<path>=<integer>, payload_path_len_lte:<path>=<integer>, payload_path_gt:<path>=<number>, payload_path_gte:<path>=<number>, payload_path_lt:<path>=<number>, payload_path_lte:<path>=<number>"
+        f"'{clause}'. Supported clauses: event_type_present, event_type_equals:<value>, payload_has:<key>, payload_path_exists:<path>, payload_path_not_exists:<path>, payload_path_equals:<path>=<value>, payload_path_not_equals:<path>=<value>, payload_path_in:<path>=<csv-or-json-list>, payload_path_not_in:<path>=<csv-or-json-list>, payload_path_any_in:<path>=<csv-or-json-list>, payload_path_all_in:<path>=<csv-or-json-list>, payload_path_none_in:<path>=<csv-or-json-list>, payload_path_startswith:<path>=<string>, payload_path_contains:<path>=<string>, payload_path_endswith:<path>=<string>, payload_path_not_startswith:<path>=<string>, payload_path_not_contains:<path>=<string>, payload_path_not_endswith:<path>=<string>, payload_path_len_gt:<path>=<integer>, payload_path_len_gte:<path>=<integer>, payload_path_len_lt:<path>=<integer>, payload_path_len_lte:<path>=<integer>, payload_path_gt:<path>=<number>, payload_path_gte:<path>=<number>, payload_path_lt:<path>=<number>, payload_path_lte:<path>=<number>"
     )
 
 
@@ -615,11 +702,20 @@ def _evaluate_clause(clause: _Clause, *, event_type: str | None, payload: Mappin
     if clause.kind == "payload_path_exists":
         return _resolve_payload_path(payload, clause.path) is not _MISSING_PAYLOAD_PATH
 
+    if clause.kind == "payload_path_not_exists":
+        return _resolve_payload_path(payload, clause.path) is _MISSING_PAYLOAD_PATH
+
     if clause.kind == "payload_path_equals":
         actual = _resolve_payload_path(payload, clause.path)
         if actual is _MISSING_PAYLOAD_PATH:
             return False
         return _payload_values_equal(actual, clause.value)
+
+    if clause.kind == "payload_path_not_equals":
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH:
+            return False
+        return not _payload_values_equal(actual, clause.value)
 
     if clause.kind == "payload_path_in":
         actual = _resolve_payload_path(payload, clause.path)
@@ -627,13 +723,62 @@ def _evaluate_clause(clause: _Clause, *, event_type: str | None, payload: Mappin
             return False
         return any(_payload_values_equal(actual, expected) for expected in clause.value)
 
-    if clause.kind in {"payload_path_startswith", "payload_path_contains"}:
+    if clause.kind == "payload_path_not_in":
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH:
+            return False
+        return all(not _payload_values_equal(actual, expected) for expected in clause.value)
+
+    if clause.kind == "payload_path_any_in":
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH or not isinstance(actual, list):
+            return False
+        return any(
+            _payload_values_equal(member, expected)
+            for member in actual
+            for expected in clause.value
+        )
+
+    if clause.kind == "payload_path_all_in":
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH or not isinstance(actual, list) or not actual:
+            return False
+        return all(
+            any(_payload_values_equal(member, expected) for expected in clause.value)
+            for member in actual
+        )
+
+    if clause.kind == "payload_path_none_in":
+        actual = _resolve_payload_path(payload, clause.path)
+        if actual is _MISSING_PAYLOAD_PATH or not isinstance(actual, list) or not actual:
+            return False
+        return all(
+            all(not _payload_values_equal(member, expected) for expected in clause.value)
+            for member in actual
+        )
+
+    if clause.kind in {
+        "payload_path_startswith",
+        "payload_path_contains",
+        "payload_path_endswith",
+        "payload_path_not_startswith",
+        "payload_path_not_contains",
+        "payload_path_not_endswith",
+    }:
         actual = _resolve_payload_path(payload, clause.path)
         if actual is _MISSING_PAYLOAD_PATH or not isinstance(actual, str):
             return False
         if clause.kind == "payload_path_startswith":
             return actual.startswith(clause.value)
-        return clause.value in actual
+        if clause.kind == "payload_path_endswith":
+            return actual.endswith(clause.value)
+        if clause.kind == "payload_path_contains":
+            return clause.value in actual
+        if clause.kind == "payload_path_not_startswith":
+            return not actual.startswith(clause.value)
+        if clause.kind == "payload_path_not_endswith":
+            return not actual.endswith(clause.value)
+        return clause.value not in actual
 
     if clause.kind in {
         "payload_path_len_gt",
