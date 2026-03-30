@@ -1,0 +1,794 @@
+{
+  "status": "ok",
+  "collection_kind": "index",
+  "selected_pack_paths": [
+    "ingest-normalize",
+    "alert-routing",
+    "dedup-cluster",
+    "refs-handoff"
+  ],
+  "packs": [
+    {
+      "target_path": "ingest-normalize",
+      "pack_id": "ingest-normalize",
+      "program": "program.erz",
+      "program_path": "ingest-normalize/program.erz",
+      "baseline": "baseline.json",
+      "baseline_path": "ingest-normalize/baseline.json",
+      "baseline_shape": "inline-statements",
+      "rule_source_status": "ok",
+      "fixtures": [
+        {
+          "id": "event-01-ingest",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "queue_normalize",
+              "params": {
+                "pipeline": "nlp-v1"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_ingest_to_normalize",
+              "matched_clauses": [
+                "event_type_equals:ingest",
+                "payload_path_contains:text=Unfall"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-03-01T10:00:00Z",
+              "seed": "seed-pack-1"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "queue_normalize",
+              "params": {
+                "pipeline": "nlp-v1"
+              }
+            }
+          ]
+        },
+        {
+          "id": "event-02-normalize",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "notify",
+              "params": {
+                "channel": "ops_dispatch",
+                "template_ref": "@tpl_norm_ready"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_normalize_publish",
+              "matched_clauses": [
+                "event_type_equals:normalize",
+                "payload_path_startswith:normalized_text=Verkehrsunfall",
+                "payload_path_len_gte:entities=1"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-03-01T10:00:02Z"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "notify",
+              "params": {
+                "channel": "ops_dispatch",
+                "template": "Normalisierung abgeschlossen: Einsatzlage aktualisieren."
+              }
+            }
+          ],
+          "resolved_refs": {
+            "tpl_norm_ready": "Normalisierung abgeschlossen: Einsatzlage aktualisieren."
+          }
+        }
+      ],
+      "summary": {
+        "fixture_count": 2,
+        "matched_count": 2,
+        "mismatch_count": 0,
+        "runtime_error_count": 0,
+        "total_fixture_count": 2,
+        "fixture_class_counts": {
+          "ok": 2,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "fixture_class_ids": {
+          "ok": [
+            "event-01-ingest",
+            "event-02-normalize"
+          ],
+          "expectation_mismatch": [],
+          "runtime_error": []
+        },
+        "action_plan_count": 2,
+        "resolved_ref_count": 1
+      },
+      "status": "ok",
+      "path": "ingest-normalize"
+    },
+    {
+      "target_path": "alert-routing",
+      "pack_id": "sprint-7-pack-03-alert-routing",
+      "program": "alert-routing.erz",
+      "program_path": "alert-routing/alert-routing.erz",
+      "baseline": "alert-routing.baseline.json",
+      "baseline_path": "alert-routing/alert-routing.baseline.json",
+      "baseline_shape": "fixture-matrix",
+      "rule_source_status": "ok",
+      "fixtures": [
+        {
+          "id": "critical_high_conf",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+high_confidence",
+                "target": "oncall_primary",
+                "via": "pager"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r01_page_primary",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_gte:measurements.severity=0.9",
+                "payload_path_gte:measurements.confidence=0.85"
+              ],
+              "score": 1.0,
+              "calibrated_probability": 0.98,
+              "timestamp": "2026-02-25T17:00:00Z",
+              "seed": "fixture-critical-high"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+high_confidence",
+                "target": "oncall_primary",
+                "via": "pager"
+              }
+            }
+          ]
+        },
+        {
+          "id": "critical_low_conf",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+low_confidence",
+                "target": "safety_triage",
+                "via": "human_review"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r02_manual_review",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_gte:measurements.severity=0.9",
+                "payload_path_lt:measurements.confidence=0.85"
+              ],
+              "score": 1.0,
+              "calibrated_probability": 0.76,
+              "timestamp": "2026-02-25T17:05:00Z",
+              "seed": "fixture-critical-low"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+low_confidence",
+                "target": "safety_triage",
+                "via": "human_review"
+              }
+            }
+          ]
+        },
+        {
+          "id": "warning_high_conf",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "route",
+              "params": {
+                "priority": "p2",
+                "reason": "warning+high_confidence",
+                "target": "ops_digest",
+                "via": "queue"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r03_ops_digest",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_gte:measurements.severity=0.6",
+                "payload_path_lt:measurements.severity=0.9",
+                "payload_path_gte:measurements.confidence=0.85"
+              ],
+              "score": 1.0,
+              "calibrated_probability": 0.88,
+              "timestamp": "2026-02-25T17:10:00Z",
+              "seed": "fixture-warning-high"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "route",
+              "params": {
+                "priority": "p2",
+                "reason": "warning+high_confidence",
+                "target": "ops_digest",
+                "via": "queue"
+              }
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "fixture_count": 3,
+        "matched_count": 3,
+        "mismatch_count": 0,
+        "runtime_error_count": 0,
+        "total_fixture_count": 3,
+        "fixture_class_counts": {
+          "ok": 3,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "fixture_class_ids": {
+          "ok": [
+            "critical_high_conf",
+            "critical_low_conf",
+            "warning_high_conf"
+          ],
+          "expectation_mismatch": [],
+          "runtime_error": []
+        },
+        "action_plan_count": 3,
+        "resolved_ref_count": 0
+      },
+      "status": "ok",
+      "path": "alert-routing"
+    },
+    {
+      "target_path": "dedup-cluster",
+      "pack_id": "sprint-7-program-pack-2-dedup-cluster",
+      "program": "policy.erz",
+      "program_path": "dedup-cluster/policy.erz",
+      "baseline": "baseline.json",
+      "baseline_path": "dedup-cluster/baseline.json",
+      "baseline_shape": "fixture-matrix",
+      "rule_source_status": "ok",
+      "fixtures": [
+        {
+          "id": "attach_ops",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "cluster_attach",
+              "params": {
+                "cluster_bucket": "ops",
+                "mode": "dedup",
+                "reason": "time_geo_category_match"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_cluster_attach_ops",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:incident_candidate",
+                "payload_path_exists:dedupe.key",
+                "payload_path_equals:category=ops",
+                "payload_path_lte:window.minutes_since_anchor=10",
+                "payload_path_lte:geo.distance_meters=500"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-02-25T12:00:00Z",
+              "seed": "case-attach-ops"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "cluster_attach",
+              "params": {
+                "cluster_bucket": "ops",
+                "mode": "dedup",
+                "reason": "time_geo_category_match"
+              }
+            }
+          ]
+        },
+        {
+          "id": "new_security_geo_miss",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "cluster_new",
+              "params": {
+                "cluster_bucket": "security",
+                "mode": "new",
+                "reason": "geo_radius_miss"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_cluster_new_security_geo",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:incident_candidate",
+                "payload_path_exists:dedupe.key",
+                "payload_path_equals:category=security",
+                "payload_path_gt:geo.distance_meters=500"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-02-25T12:05:00Z",
+              "seed": "case-new-security-geo"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "cluster_new",
+              "params": {
+                "cluster_bucket": "security",
+                "mode": "new",
+                "reason": "geo_radius_miss"
+              }
+            }
+          ]
+        },
+        {
+          "id": "new_ops_time_miss",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "cluster_new",
+              "params": {
+                "cluster_bucket": "ops",
+                "mode": "new",
+                "reason": "time_window_miss"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_cluster_new_ops_time",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:incident_candidate",
+                "payload_path_exists:dedupe.key",
+                "payload_path_equals:category=ops",
+                "payload_path_gt:window.minutes_since_anchor=10"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-02-25T12:10:00Z",
+              "seed": "case-new-ops-time"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "cluster_new",
+              "params": {
+                "cluster_bucket": "ops",
+                "mode": "new",
+                "reason": "time_window_miss"
+              }
+            }
+          ]
+        },
+        {
+          "id": "no_match_unknown_category",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [],
+          "trace": []
+        }
+      ],
+      "summary": {
+        "fixture_count": 4,
+        "matched_count": 4,
+        "mismatch_count": 0,
+        "runtime_error_count": 0,
+        "total_fixture_count": 4,
+        "fixture_class_counts": {
+          "ok": 4,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "fixture_class_ids": {
+          "ok": [
+            "attach_ops",
+            "new_security_geo_miss",
+            "new_ops_time_miss",
+            "no_match_unknown_category"
+          ],
+          "expectation_mismatch": [],
+          "runtime_error": []
+        },
+        "action_plan_count": 3,
+        "resolved_ref_count": 0
+      },
+      "status": "ok",
+      "path": "dedup-cluster"
+    },
+    {
+      "target_path": "refs-handoff",
+      "pack_id": "sprint-7-program-pack-4-refs-handoff",
+      "program": "policy.erz",
+      "program_path": "refs-handoff/policy.erz",
+      "baseline": "baseline.json",
+      "baseline_path": "refs-handoff/baseline.json",
+      "baseline_shape": "fixture-matrix",
+      "rule_source_status": "ok",
+      "fixtures": [
+        {
+          "id": "ops_primary_page",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "notify",
+              "params": {
+                "channel_ref": "@ch_ops_pager",
+                "labels": [
+                  {
+                    "value_ref": "@label_critical"
+                  },
+                  {
+                    "value_ref": "@label_ops"
+                  }
+                ],
+                "payload": {
+                  "owner": {
+                    "team_ref": "@team_ops"
+                  },
+                  "priority_ref": "@prio_p1",
+                  "runbook_ref": "@runbook_ops"
+                },
+                "template_ref": "@tpl_ops_page"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_ops_primary_page",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_equals:routing.team=ops",
+                "payload_path_gte:measurements.severity=0.9"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-03-28T15:00:00Z",
+              "seed": "refs-handoff-ops-primary"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "notify",
+              "params": {
+                "channel": "ops_pager",
+                "labels": [
+                  {
+                    "value": "critical"
+                  },
+                  {
+                    "value": "ops"
+                  }
+                ],
+                "payload": {
+                  "owner": {
+                    "team": "ops"
+                  },
+                  "priority": "p1",
+                  "runbook": "rb://ops/primary-page"
+                },
+                "template": "Page primary on-call immediately"
+              }
+            }
+          ],
+          "resolved_refs": {
+            "ch_ops_pager": "ops_pager",
+            "label_critical": "critical",
+            "label_ops": "ops",
+            "prio_p1": "p1",
+            "runbook_ops": "rb://ops/primary-page",
+            "team_ops": "ops",
+            "tpl_ops_page": "Page primary on-call immediately"
+          }
+        },
+        {
+          "id": "security_triage",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "notify",
+              "params": {
+                "channel_ref": "@ch_sec_triage",
+                "labels": [
+                  {
+                    "value_ref": "@label_critical"
+                  },
+                  {
+                    "value_ref": "@label_security"
+                  },
+                  {
+                    "value_ref": "@label_triage"
+                  }
+                ],
+                "payload": {
+                  "owner": {
+                    "team_ref": "@team_sec"
+                  },
+                  "priority_ref": "@prio_p1",
+                  "runbook_ref": "@runbook_sec"
+                },
+                "template_ref": "@tpl_sec_triage"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_security_triage",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_equals:routing.team=security",
+                "payload_path_gte:measurements.severity=0.9"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-03-28T15:05:00Z",
+              "seed": "refs-handoff-security-triage"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "notify",
+              "params": {
+                "channel": "security_triage",
+                "labels": [
+                  {
+                    "value": "critical"
+                  },
+                  {
+                    "value": "security"
+                  },
+                  {
+                    "value": "triage"
+                  }
+                ],
+                "payload": {
+                  "owner": {
+                    "team": "security"
+                  },
+                  "priority": "p1",
+                  "runbook": "rb://security/triage"
+                },
+                "template": "Escalate to security triage"
+              }
+            }
+          ],
+          "resolved_refs": {
+            "ch_sec_triage": "security_triage",
+            "label_critical": "critical",
+            "label_security": "security",
+            "label_triage": "triage",
+            "prio_p1": "p1",
+            "runbook_sec": "rb://security/triage",
+            "team_sec": "security",
+            "tpl_sec_triage": "Escalate to security triage"
+          }
+        },
+        {
+          "id": "ops_digest",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "notify",
+              "params": {
+                "channel_ref": "@ch_ops_digest",
+                "labels": [
+                  {
+                    "value_ref": "@label_warning"
+                  },
+                  {
+                    "value_ref": "@label_ops"
+                  }
+                ],
+                "payload": {
+                  "owner": {
+                    "team_ref": "@team_ops"
+                  },
+                  "priority_ref": "@prio_p2"
+                },
+                "template_ref": "@tpl_ops_digest"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_ops_digest",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_equals:routing.team=ops",
+                "payload_path_gte:measurements.severity=0.6",
+                "payload_path_lt:measurements.severity=0.9"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-03-28T15:10:00Z",
+              "seed": "refs-handoff-ops-digest"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "notify",
+              "params": {
+                "channel": "ops_digest",
+                "labels": [
+                  {
+                    "value": "warning"
+                  },
+                  {
+                    "value": "ops"
+                  }
+                ],
+                "payload": {
+                  "owner": {
+                    "team": "ops"
+                  },
+                  "priority": "p2"
+                },
+                "template": "Queue for ops digest review"
+              }
+            }
+          ],
+          "resolved_refs": {
+            "ch_ops_digest": "ops_digest",
+            "label_ops": "ops",
+            "label_warning": "warning",
+            "prio_p2": "p2",
+            "team_ops": "ops",
+            "tpl_ops_digest": "Queue for ops digest review"
+          }
+        },
+        {
+          "id": "no_match_finance",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [],
+          "trace": []
+        }
+      ],
+      "summary": {
+        "fixture_count": 4,
+        "matched_count": 4,
+        "mismatch_count": 0,
+        "runtime_error_count": 0,
+        "total_fixture_count": 4,
+        "fixture_class_counts": {
+          "ok": 4,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "fixture_class_ids": {
+          "ok": [
+            "ops_primary_page",
+            "security_triage",
+            "ops_digest",
+            "no_match_finance"
+          ],
+          "expectation_mismatch": [],
+          "runtime_error": []
+        },
+        "action_plan_count": 3,
+        "resolved_ref_count": 21
+      },
+      "status": "ok",
+      "path": "refs-handoff"
+    }
+  ],
+  "summary": {
+    "pack_count": 4,
+    "total_pack_count": 4,
+    "ok_pack_count": 4,
+    "error_pack_count": 0,
+    "fixture_count": 13,
+    "matched_count": 13,
+    "mismatch_count": 0,
+    "runtime_error_count": 0,
+    "rule_source_status_counts": {
+      "ok": 4,
+      "mismatch": 0
+    },
+    "fixture_class_counts": {
+      "ok": 13,
+      "expectation_mismatch": 0,
+      "runtime_error": 0
+    },
+    "action_plan_count": 11,
+    "resolved_ref_count": 22
+  },
+  "target_path": "program-pack-index.json",
+  "replay_status": "ok",
+  "strict_profile": {
+    "expected_pack_count": 4,
+    "expected_total_pack_count": 4,
+    "expected_selected_pack_paths": [
+      "ingest-normalize",
+      "alert-routing",
+      "dedup-cluster",
+      "refs-handoff"
+    ],
+    "expected_fixture_class_counts": {
+      "ok": 13,
+      "expectation_mismatch": 0,
+      "runtime_error": 0
+    },
+    "expected_rule_source_status_counts": {
+      "ok": 4,
+      "mismatch": 0
+    },
+    "expected_action_plan_count": 11,
+    "expected_resolved_refs_count": 22,
+    "expected_mismatch_field_counts": {
+      "actions": 0,
+      "trace": 0,
+      "action_plan": 0,
+      "resolved_refs": 0
+    }
+  },
+  "strict_profile_mismatches": []
+}

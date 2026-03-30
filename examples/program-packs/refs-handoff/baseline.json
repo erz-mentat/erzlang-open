@@ -1,0 +1,427 @@
+{
+  "pack_id": "sprint-7-program-pack-4-refs-handoff",
+  "title": "Refs-backed action-plan handoff fixture matrix",
+  "rules": [
+    {
+      "id": "r_ops_primary_page",
+      "when": [
+        "event_type_present",
+        "event_type_equals:alert",
+        "payload_path_exists:alert.id",
+        "payload_path_equals:routing.team=ops",
+        "payload_path_gte:measurements.severity=0.9"
+      ],
+      "then": [
+        {
+          "kind": "notify",
+          "params": {
+            "channel_ref": "@ch_ops_pager",
+            "labels": [
+              {
+                "value_ref": "@label_critical"
+              },
+              {
+                "value_ref": "@label_ops"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team_ref": "@team_ops"
+              },
+              "priority_ref": "@prio_p1",
+              "runbook_ref": "@runbook_ops"
+            },
+            "template_ref": "@tpl_ops_page"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r_security_triage",
+      "when": [
+        "event_type_present",
+        "event_type_equals:alert",
+        "payload_path_exists:alert.id",
+        "payload_path_equals:routing.team=security",
+        "payload_path_gte:measurements.severity=0.9"
+      ],
+      "then": [
+        {
+          "kind": "notify",
+          "params": {
+            "channel_ref": "@ch_sec_triage",
+            "labels": [
+              {
+                "value_ref": "@label_critical"
+              },
+              {
+                "value_ref": "@label_security"
+              },
+              {
+                "value_ref": "@label_triage"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team_ref": "@team_sec"
+              },
+              "priority_ref": "@prio_p1",
+              "runbook_ref": "@runbook_sec"
+            },
+            "template_ref": "@tpl_sec_triage"
+          }
+        }
+      ]
+    },
+    {
+      "id": "r_ops_digest",
+      "when": [
+        "event_type_present",
+        "event_type_equals:alert",
+        "payload_path_equals:routing.team=ops",
+        "payload_path_gte:measurements.severity=0.6",
+        "payload_path_lt:measurements.severity=0.9"
+      ],
+      "then": [
+        {
+          "kind": "notify",
+          "params": {
+            "channel_ref": "@ch_ops_digest",
+            "labels": [
+              {
+                "value_ref": "@label_warning"
+              },
+              {
+                "value_ref": "@label_ops"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team_ref": "@team_ops"
+              },
+              "priority_ref": "@prio_p2"
+            },
+            "template_ref": "@tpl_ops_digest"
+          }
+        }
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "ops_primary_page",
+      "event": {
+        "type": "alert",
+        "payload": {
+          "alert": {
+            "id": "A-700"
+          },
+          "measurements": {
+            "severity": 0.97,
+            "confidence": 0.94
+          },
+          "routing": {
+            "team": "ops"
+          }
+        }
+      },
+      "context": {
+        "now": "2026-03-28T15:00:00Z",
+        "seed": "refs-handoff-ops-primary"
+      },
+      "expected_actions": [
+        {
+          "kind": "notify",
+          "params": {
+            "channel_ref": "@ch_ops_pager",
+            "labels": [
+              {
+                "value_ref": "@label_critical"
+              },
+              {
+                "value_ref": "@label_ops"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team_ref": "@team_ops"
+              },
+              "priority_ref": "@prio_p1",
+              "runbook_ref": "@runbook_ops"
+            },
+            "template_ref": "@tpl_ops_page"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r_ops_primary_page",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:alert",
+            "payload_path_exists:alert.id",
+            "payload_path_equals:routing.team=ops",
+            "payload_path_gte:measurements.severity=0.9"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-03-28T15:00:00Z",
+          "seed": "refs-handoff-ops-primary"
+        }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "notify",
+          "params": {
+            "channel": "ops_pager",
+            "labels": [
+              {
+                "value": "critical"
+              },
+              {
+                "value": "ops"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team": "ops"
+              },
+              "priority": "p1",
+              "runbook": "rb://ops/primary-page"
+            },
+            "template": "Page primary on-call immediately"
+          }
+        }
+      ],
+      "expected_resolved_refs": {
+        "ch_ops_pager": "ops_pager",
+        "label_critical": "critical",
+        "label_ops": "ops",
+        "prio_p1": "p1",
+        "runbook_ops": "rb://ops/primary-page",
+        "team_ops": "ops",
+        "tpl_ops_page": "Page primary on-call immediately"
+      }
+    },
+    {
+      "id": "security_triage",
+      "event": {
+        "type": "alert",
+        "payload": {
+          "alert": {
+            "id": "A-701"
+          },
+          "measurements": {
+            "severity": 0.96,
+            "confidence": 0.88
+          },
+          "routing": {
+            "team": "security"
+          }
+        }
+      },
+      "context": {
+        "now": "2026-03-28T15:05:00Z",
+        "seed": "refs-handoff-security-triage"
+      },
+      "expected_actions": [
+        {
+          "kind": "notify",
+          "params": {
+            "channel_ref": "@ch_sec_triage",
+            "labels": [
+              {
+                "value_ref": "@label_critical"
+              },
+              {
+                "value_ref": "@label_security"
+              },
+              {
+                "value_ref": "@label_triage"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team_ref": "@team_sec"
+              },
+              "priority_ref": "@prio_p1",
+              "runbook_ref": "@runbook_sec"
+            },
+            "template_ref": "@tpl_sec_triage"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r_security_triage",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:alert",
+            "payload_path_exists:alert.id",
+            "payload_path_equals:routing.team=security",
+            "payload_path_gte:measurements.severity=0.9"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-03-28T15:05:00Z",
+          "seed": "refs-handoff-security-triage"
+        }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "notify",
+          "params": {
+            "channel": "security_triage",
+            "labels": [
+              {
+                "value": "critical"
+              },
+              {
+                "value": "security"
+              },
+              {
+                "value": "triage"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team": "security"
+              },
+              "priority": "p1",
+              "runbook": "rb://security/triage"
+            },
+            "template": "Escalate to security triage"
+          }
+        }
+      ],
+      "expected_resolved_refs": {
+        "ch_sec_triage": "security_triage",
+        "label_critical": "critical",
+        "label_security": "security",
+        "label_triage": "triage",
+        "prio_p1": "p1",
+        "runbook_sec": "rb://security/triage",
+        "team_sec": "security",
+        "tpl_sec_triage": "Escalate to security triage"
+      }
+    },
+    {
+      "id": "ops_digest",
+      "event": {
+        "type": "alert",
+        "payload": {
+          "alert": {
+            "id": "A-702"
+          },
+          "measurements": {
+            "severity": 0.72,
+            "confidence": 0.91
+          },
+          "routing": {
+            "team": "ops"
+          }
+        }
+      },
+      "context": {
+        "now": "2026-03-28T15:10:00Z",
+        "seed": "refs-handoff-ops-digest"
+      },
+      "expected_actions": [
+        {
+          "kind": "notify",
+          "params": {
+            "channel_ref": "@ch_ops_digest",
+            "labels": [
+              {
+                "value_ref": "@label_warning"
+              },
+              {
+                "value_ref": "@label_ops"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team_ref": "@team_ops"
+              },
+              "priority_ref": "@prio_p2"
+            },
+            "template_ref": "@tpl_ops_digest"
+          }
+        }
+      ],
+      "expected_trace": [
+        {
+          "rule_id": "r_ops_digest",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:alert",
+            "payload_path_equals:routing.team=ops",
+            "payload_path_gte:measurements.severity=0.6",
+            "payload_path_lt:measurements.severity=0.9"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-03-28T15:10:00Z",
+          "seed": "refs-handoff-ops-digest"
+        }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "notify",
+          "params": {
+            "channel": "ops_digest",
+            "labels": [
+              {
+                "value": "warning"
+              },
+              {
+                "value": "ops"
+              }
+            ],
+            "payload": {
+              "owner": {
+                "team": "ops"
+              },
+              "priority": "p2"
+            },
+            "template": "Queue for ops digest review"
+          }
+        }
+      ],
+      "expected_resolved_refs": {
+        "ch_ops_digest": "ops_digest",
+        "label_ops": "ops",
+        "label_warning": "warning",
+        "prio_p2": "p2",
+        "team_ops": "ops",
+        "tpl_ops_digest": "Queue for ops digest review"
+      }
+    },
+    {
+      "id": "no_match_finance",
+      "event": {
+        "type": "alert",
+        "payload": {
+          "alert": {
+            "id": "A-703"
+          },
+          "measurements": {
+            "severity": 0.41,
+            "confidence": 0.77
+          },
+          "routing": {
+            "team": "finance"
+          }
+        }
+      },
+      "context": {
+        "now": "2026-03-28T15:15:00Z",
+        "seed": "refs-handoff-no-match"
+      },
+      "expected_actions": [],
+      "expected_trace": [],
+      "expected_action_plan": [],
+      "expected_resolved_refs": {}
+    }
+  ]
+}

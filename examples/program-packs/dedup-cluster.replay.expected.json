@@ -1,0 +1,186 @@
+{
+  "target_path": "dedup-cluster",
+  "pack_id": "sprint-7-program-pack-2-dedup-cluster",
+  "program": "policy.erz",
+  "program_path": "dedup-cluster/policy.erz",
+  "baseline": "baseline.json",
+  "baseline_path": "dedup-cluster/baseline.json",
+  "baseline_shape": "fixture-matrix",
+  "rule_source_status": "ok",
+  "fixtures": [
+    {
+      "id": "attach_ops",
+      "status": "ok",
+      "fixture_class": "ok",
+      "actions": [
+        {
+          "kind": "cluster_attach",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "dedup",
+            "reason": "time_geo_category_match"
+          }
+        }
+      ],
+      "trace": [
+        {
+          "rule_id": "r_cluster_attach_ops",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:incident_candidate",
+            "payload_path_exists:dedupe.key",
+            "payload_path_equals:category=ops",
+            "payload_path_lte:window.minutes_since_anchor=10",
+            "payload_path_lte:geo.distance_meters=500"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-02-25T12:00:00Z",
+          "seed": "case-attach-ops"
+        }
+      ],
+      "action_plan": [
+        {
+          "step": 1,
+          "kind": "cluster_attach",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "dedup",
+            "reason": "time_geo_category_match"
+          }
+        }
+      ]
+    },
+    {
+      "id": "new_security_geo_miss",
+      "status": "ok",
+      "fixture_class": "ok",
+      "actions": [
+        {
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "security",
+            "mode": "new",
+            "reason": "geo_radius_miss"
+          }
+        }
+      ],
+      "trace": [
+        {
+          "rule_id": "r_cluster_new_security_geo",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:incident_candidate",
+            "payload_path_exists:dedupe.key",
+            "payload_path_equals:category=security",
+            "payload_path_gt:geo.distance_meters=500"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-02-25T12:05:00Z",
+          "seed": "case-new-security-geo"
+        }
+      ],
+      "action_plan": [
+        {
+          "step": 1,
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "security",
+            "mode": "new",
+            "reason": "geo_radius_miss"
+          }
+        }
+      ]
+    },
+    {
+      "id": "new_ops_time_miss",
+      "status": "ok",
+      "fixture_class": "ok",
+      "actions": [
+        {
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "new",
+            "reason": "time_window_miss"
+          }
+        }
+      ],
+      "trace": [
+        {
+          "rule_id": "r_cluster_new_ops_time",
+          "matched_clauses": [
+            "event_type_present",
+            "event_type_equals:incident_candidate",
+            "payload_path_exists:dedupe.key",
+            "payload_path_equals:category=ops",
+            "payload_path_gt:window.minutes_since_anchor=10"
+          ],
+          "score": 1.0,
+          "timestamp": "2026-02-25T12:10:00Z",
+          "seed": "case-new-ops-time"
+        }
+      ],
+      "action_plan": [
+        {
+          "step": 1,
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "new",
+            "reason": "time_window_miss"
+          }
+        }
+      ]
+    },
+    {
+      "id": "no_match_unknown_category",
+      "status": "ok",
+      "fixture_class": "ok",
+      "actions": [],
+      "trace": []
+    }
+  ],
+  "summary": {
+    "fixture_count": 4,
+    "matched_count": 4,
+    "mismatch_count": 0,
+    "runtime_error_count": 0,
+    "total_fixture_count": 4,
+    "fixture_class_counts": {
+      "ok": 4,
+      "expectation_mismatch": 0,
+      "runtime_error": 0
+    },
+    "fixture_class_ids": {
+      "ok": [
+        "attach_ops",
+        "new_security_geo_miss",
+        "new_ops_time_miss",
+        "no_match_unknown_category"
+      ],
+      "expectation_mismatch": [],
+      "runtime_error": []
+    },
+    "action_plan_count": 3,
+    "resolved_ref_count": 0
+  },
+  "status": "ok",
+  "replay_status": "ok",
+  "strict_profile": {
+    "expected_pack_id": "sprint-7-program-pack-2-dedup-cluster",
+    "expected_baseline_shape": "fixture-matrix",
+    "expected_total_fixture_count": 4,
+    "expected_fixture_class_counts": {
+      "ok": 4,
+      "expectation_mismatch": 0,
+      "runtime_error": 0
+    },
+    "expected_action_plan_count": 3,
+    "expected_resolved_refs_count": 0,
+    "expected_mismatch_count": 0,
+    "expected_expectation_mismatch_count": 0,
+    "expected_runtime_error_count": 0,
+    "expected_rule_source_status": "ok"
+  },
+  "strict_profile_mismatches": []
+}

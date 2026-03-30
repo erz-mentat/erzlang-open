@@ -4,8 +4,10 @@ import argparse
 import fnmatch
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import typing
 import subprocess
 import sys
 
@@ -26,6 +28,11 @@ BENCH_ROOT = ROOT / "bench" / "token-harness"
 BENCH_SCRIPT = BENCH_ROOT / "measure.py"
 BENCH_RESULTS_JSON = BENCH_ROOT / "results" / "latest.json"
 PROGRAM_PACK_REPLAY_FIXTURE_CLASSES = ("ok", "expectation_mismatch", "runtime_error")
+PROGRAM_PACK_REPLAY_MISMATCH_FIELDS = ("actions", "trace", "action_plan", "resolved_refs")
+PROGRAM_PACK_RULE_SOURCE_STATUSES = ("ok", "mismatch")
+PROGRAM_PACK_FIXTURE_ROOT = ROOT / "examples" / "program-packs"
+PROGRAM_PACK_INDEX_PATH = PROGRAM_PACK_FIXTURE_ROOT / "program-pack-index.json"
+PROGRAM_PACK_REPLAY_COLLECTION_STRICT_PROFILE_NAMES = ("program-pack-index-clean",)
 PROGRAM_PACK_REPLAY_STRICT_PROFILES: dict[str, dict[str, object]] = {
     "clean": {
         "expected_mismatch_count": 0,
@@ -42,6 +49,8 @@ PROGRAM_PACK_REPLAY_STRICT_PROFILES: dict[str, dict[str, object]] = {
             "expectation_mismatch": 0,
             "runtime_error": 0,
         },
+        "expected_action_plan_count": 2,
+        "expected_resolved_refs_count": 1,
         "expected_mismatch_count": 0,
         "expected_expectation_mismatch_count": 0,
         "expected_runtime_error_count": 0,
@@ -56,6 +65,8 @@ PROGRAM_PACK_REPLAY_STRICT_PROFILES: dict[str, dict[str, object]] = {
             "expectation_mismatch": 0,
             "runtime_error": 0,
         },
+        "expected_action_plan_count": 3,
+        "expected_resolved_refs_count": 0,
         "expected_mismatch_count": 0,
         "expected_expectation_mismatch_count": 0,
         "expected_runtime_error_count": 0,
@@ -70,12 +81,222 @@ PROGRAM_PACK_REPLAY_STRICT_PROFILES: dict[str, dict[str, object]] = {
             "expectation_mismatch": 0,
             "runtime_error": 0,
         },
+        "expected_action_plan_count": 3,
+        "expected_resolved_refs_count": 0,
+        "expected_mismatch_count": 0,
+        "expected_expectation_mismatch_count": 0,
+        "expected_runtime_error_count": 0,
+        "expected_rule_source_status": "ok",
+    },
+    "refs-handoff-clean": {
+        "expected_pack_id": "sprint-7-program-pack-4-refs-handoff",
+        "expected_baseline_shape": "fixture-matrix",
+        "expected_total_fixture_count": 4,
+        "expected_fixture_class_counts": {
+            "ok": 4,
+            "expectation_mismatch": 0,
+            "runtime_error": 0,
+        },
+        "expected_action_plan_count": 3,
+        "expected_resolved_refs_count": 21,
         "expected_mismatch_count": 0,
         "expected_expectation_mismatch_count": 0,
         "expected_runtime_error_count": 0,
         "expected_rule_source_status": "ok",
     },
 }
+PROGRAM_PACK_REPLAY_STRICT_PROFILE_CHOICES = (
+    tuple(PROGRAM_PACK_REPLAY_STRICT_PROFILES.keys())
+    + PROGRAM_PACK_REPLAY_COLLECTION_STRICT_PROFILE_NAMES
+)
+
+
+def _load_checked_in_program_pack_index_paths() -> list[str]:
+    try:
+        payload = json.loads(PROGRAM_PACK_INDEX_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"failed to load checked-in program-pack index for strict profile program-pack-index-clean: {PROGRAM_PACK_INDEX_PATH}"
+        ) from exc
+
+    raw_entries = payload.get("packs") if isinstance(payload, dict) else None
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise ValueError(
+            "checked-in program-pack index for strict profile program-pack-index-clean must contain a non-empty 'packs' array"
+        )
+
+    selected_pack_paths: list[str] = []
+    seen_pack_paths: set[str] = set()
+    for position, entry in enumerate(raw_entries, start=1):
+        if isinstance(entry, str):
+            raw_path = entry
+        elif isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            raw_path = entry["path"]
+        else:
+            raise ValueError(
+                "checked-in program-pack index for strict profile program-pack-index-clean contains "
+                f"invalid entry #{position}: expected string or object with string 'path'"
+            )
+        normalized = raw_path.strip()
+        if not normalized:
+            raise ValueError(
+                "checked-in program-pack index for strict profile program-pack-index-clean contains "
+                f"empty path at entry #{position}"
+            )
+        pack_path = Path(normalized)
+        if pack_path.is_absolute() or any(part == ".." for part in pack_path.parts):
+            raise ValueError(
+                "checked-in program-pack index for strict profile program-pack-index-clean must stay within examples/program-packs"
+            )
+        pack_path_text = str(pack_path)
+        if pack_path_text in seen_pack_paths:
+            raise ValueError(
+                "checked-in program-pack index for strict profile program-pack-index-clean contains "
+                f"duplicate pack path '{pack_path_text}'"
+            )
+        seen_pack_paths.add(pack_path_text)
+        selected_pack_paths.append(pack_path_text)
+    return selected_pack_paths
+
+
+def _load_program_pack_replay_payload_for_stem(stem: str) -> dict[str, object]:
+    replay_json_path = PROGRAM_PACK_FIXTURE_ROOT / f"{stem}.replay.expected.json"
+    try:
+        payload = json.loads(replay_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "failed to load checked-in pack replay contract for strict profile "
+            f"program-pack-index-clean: {replay_json_path}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "checked-in pack replay contract for strict profile program-pack-index-clean must be a JSON object: "
+            f"{replay_json_path}"
+        )
+    return payload
+
+
+def _summary_int_value(summary: dict[str, object], key: str, *, context: str) -> int:
+    value = summary.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{context} must include integer summary.{key}")
+    return value
+
+
+def _summary_fixture_class_counts(summary: dict[str, object], *, context: str) -> dict[str, int]:
+    raw_counts = summary.get("fixture_class_counts")
+    if not isinstance(raw_counts, dict):
+        raise ValueError(f"{context} must include summary.fixture_class_counts")
+
+    counts: dict[str, int] = {}
+    for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES:
+        value = raw_counts.get(fixture_class)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{context} must include integer summary.fixture_class_counts.{fixture_class}")
+        counts[fixture_class] = value
+    return counts
+
+
+def _payload_rule_source_status(payload: dict[str, object], *, context: str) -> str:
+    rule_source_status = payload.get("rule_source_status")
+    if rule_source_status not in PROGRAM_PACK_RULE_SOURCE_STATUSES:
+        allowed_rule_source_statuses = ", ".join(PROGRAM_PACK_RULE_SOURCE_STATUSES)
+        raise ValueError(
+            f"{context} must include top-level rule_source_status in {{{allowed_rule_source_statuses}}}"
+        )
+    return typing.cast(str, rule_source_status)
+
+
+def _summary_mismatch_field_counts(summary: dict[str, object]) -> dict[str, int]:
+    raw_counts = summary.get("mismatch_field_counts")
+    if raw_counts is None:
+        return {mismatch_field: 0 for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS}
+    if not isinstance(raw_counts, dict):
+        raise ValueError(
+            "checked-in pack replay contract for strict profile program-pack-index-clean has invalid summary.mismatch_field_counts"
+        )
+
+    counts: dict[str, int] = {}
+    for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+        value = raw_counts.get(mismatch_field, 0)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(
+                "checked-in pack replay contract for strict profile program-pack-index-clean has invalid "
+                f"summary.mismatch_field_counts.{mismatch_field}"
+            )
+        counts[mismatch_field] = value
+    return counts
+
+
+def _build_program_pack_index_clean_collection_strict_profile() -> dict[str, object]:
+    selected_pack_paths = _load_checked_in_program_pack_index_paths()
+    aggregate_fixture_class_counts = {
+        fixture_class: 0 for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES
+    }
+    aggregate_rule_source_status_counts = {
+        rule_source_status: 0 for rule_source_status in PROGRAM_PACK_RULE_SOURCE_STATUSES
+    }
+    aggregate_mismatch_field_counts = {
+        mismatch_field: 0 for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
+    action_plan_count = 0
+    resolved_refs_count = 0
+
+    for pack_path_text in selected_pack_paths:
+        payload = _load_program_pack_replay_payload_for_stem(Path(pack_path_text).name)
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        context = (
+            "checked-in pack replay contract for strict profile program-pack-index-clean "
+            f"({pack_path_text})"
+        )
+        counts = _summary_fixture_class_counts(
+            typing.cast(dict[str, object], summary),
+            context=context,
+        )
+        rule_source_status = _payload_rule_source_status(payload, context=context)
+        mismatch_field_counts = _summary_mismatch_field_counts(typing.cast(dict[str, object], summary))
+        for fixture_class, value in counts.items():
+            aggregate_fixture_class_counts[fixture_class] += value
+        aggregate_rule_source_status_counts[rule_source_status] += 1
+        for mismatch_field, value in mismatch_field_counts.items():
+            aggregate_mismatch_field_counts[mismatch_field] += value
+        action_plan_count += _summary_int_value(
+            summary,
+            "action_plan_count",
+            context=(
+                "checked-in pack replay contract for strict profile program-pack-index-clean "
+                f"({pack_path_text})"
+            ),
+        )
+        resolved_refs_count += _summary_int_value(
+            summary,
+            "resolved_ref_count",
+            context=(
+                "checked-in pack replay contract for strict profile program-pack-index-clean "
+                f"({pack_path_text})"
+            ),
+        )
+
+    return {
+        "expected_pack_count": len(selected_pack_paths),
+        "expected_total_pack_count": len(selected_pack_paths),
+        "expected_selected_pack_paths": selected_pack_paths,
+        "expected_fixture_class_counts": aggregate_fixture_class_counts,
+        "expected_rule_source_status_counts": aggregate_rule_source_status_counts,
+        "expected_action_plan_count": action_plan_count,
+        "expected_resolved_refs_count": resolved_refs_count,
+        "expected_mismatch_field_counts": aggregate_mismatch_field_counts,
+    }
+
+
+def _is_program_pack_collection_strict_profile(profile: str | None) -> bool:
+    return isinstance(profile, str) and profile in PROGRAM_PACK_REPLAY_COLLECTION_STRICT_PROFILE_NAMES
+
+
+def _resolve_named_program_pack_collection_strict_profile(profile: str) -> dict[str, object]:
+    if profile == "program-pack-index-clean":
+        return _build_program_pack_index_clean_collection_strict_profile()
+    raise ValueError(f"unknown aggregate pack-replay strict profile: {profile}")
 
 
 class BenchError(Exception):
@@ -193,6 +414,22 @@ def main() -> None:
         ),
     )
     eval_parser.add_argument(
+        "--batch-expected-action-plan-count",
+        type=int,
+        help=(
+            "optional expected total materialized action-plan step count across selected batch replay "
+            "(requires --batch-strict and --action-plan)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-expected-resolved-refs-count",
+        type=int,
+        help=(
+            "optional expected total resolved ref binding count across selected batch replay "
+            "(requires --batch-strict and --action-plan)"
+        ),
+    )
+    eval_parser.add_argument(
         "--batch-summary-rule-counts",
         action="store_true",
         help=(
@@ -236,6 +473,14 @@ def main() -> None:
         help=(
             "optional file path to export the deterministic batch aggregate envelope as JSON "
             "(requires --batch, not supported with --summary)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--batch-output-handoff-bundle-file",
+        help=(
+            "optional file path to export a deterministic JSON handoff bundle containing "
+            "batch-output summary.json plus generation-time self-verify/self-compare verdicts "
+            "without changing stdout (requires --batch-output)"
         ),
     )
     eval_parser.add_argument(
@@ -381,6 +626,26 @@ def main() -> None:
         help="optional expected metadata mismatch count for strict compare",
     )
     eval_parser.add_argument(
+        "--batch-output-compare-expected-baseline-action-plan-count",
+        type=int,
+        help="optional expected baseline summary.action_plan_count value for strict compare",
+    )
+    eval_parser.add_argument(
+        "--batch-output-compare-expected-candidate-action-plan-count",
+        type=int,
+        help="optional expected candidate summary.action_plan_count value for strict compare",
+    )
+    eval_parser.add_argument(
+        "--batch-output-compare-expected-baseline-resolved-refs-count",
+        type=int,
+        help="optional expected baseline summary.resolved_ref_count value for strict compare",
+    )
+    eval_parser.add_argument(
+        "--batch-output-compare-expected-candidate-resolved-refs-count",
+        type=int,
+        help="optional expected candidate summary.resolved_ref_count value for strict compare",
+    )
+    eval_parser.add_argument(
         "--batch-output-compare-expected-selected-baseline-count",
         type=int,
         help="optional expected selected baseline artifact count for strict compare",
@@ -489,6 +754,16 @@ def main() -> None:
         help="optional expected summary.event_count value for strict verify",
     )
     eval_parser.add_argument(
+        "--batch-output-verify-expected-action-plan-count",
+        type=int,
+        help="optional expected summary.action_plan_count value for strict verify",
+    )
+    eval_parser.add_argument(
+        "--batch-output-verify-expected-resolved-refs-count",
+        type=int,
+        help="optional expected summary.resolved_ref_count value for strict verify",
+    )
+    eval_parser.add_argument(
         "--batch-output-verify-expected-verified-count",
         type=int,
         help="optional expected verify_result.verified value for strict verify",
@@ -571,6 +846,14 @@ def main() -> None:
         help="optional refs JSON mapping path or '-' for stdin",
     )
     eval_parser.add_argument(
+        "--action-plan",
+        action="store_true",
+        help=(
+            "append deterministic materialized action-plan output to single-event or batch evals "
+            "and resolve action `*_ref` params via merged program/sidecar refs"
+        ),
+    )
+    eval_parser.add_argument(
         "--summary",
         action="store_true",
         help="emit deterministic one-line summary instead of JSON envelope",
@@ -612,6 +895,15 @@ def main() -> None:
             "optional file path to export JSON eval output without changing stdout; "
             "byte-identical to stdout when --summary is not active "
             "(not supported with --batch-output-verify or --batch-output-compare)"
+        ),
+    )
+    eval_parser.add_argument(
+        "--handoff-bundle-file",
+        help=(
+            "optional file path to export a deterministic JSON handoff bundle for single-event "
+            "or batch replay eval output, or for standalone batch-output verify/compare runs, "
+            "including the summary line plus structured machine-readable details "
+            "(not supported with --batch-output generation lanes)"
         ),
     )
     eval_parser.add_argument(
@@ -680,6 +972,12 @@ def main() -> None:
         help="optional post-replay fixture class selector, repeatable, preserves deterministic pack order",
     )
     pack_replay_parser.add_argument(
+        "--mismatch-field",
+        action="append",
+        choices=PROGRAM_PACK_REPLAY_MISMATCH_FIELDS,
+        help="optional post-replay mismatch-field selector, repeatable, preserves deterministic pack order",
+    )
+    pack_replay_parser.add_argument(
         "--strict",
         dest="pack_replay_strict",
         action="store_true",
@@ -691,10 +989,10 @@ def main() -> None:
     pack_replay_parser.add_argument(
         "--strict-profile",
         dest="pack_replay_strict_profile",
-        choices=tuple(PROGRAM_PACK_REPLAY_STRICT_PROFILES.keys()),
+        choices=PROGRAM_PACK_REPLAY_STRICT_PROFILE_CHOICES,
         help=(
             "strict replay preset for common CI contracts "
-            "(clean=generic green lane; *-clean=checked-in pack-specific green lane with pack id, baseline shape, total fixture count, and class histogram); auto-enables strict replay"
+            "(clean=generic green lane; *-clean=checked-in pack-specific green lane with pack id, baseline shape, total fixture count, and class histogram; program-pack-index-clean=checked-in aggregate pack-index green lane); auto-enables strict replay"
         ),
     )
     pack_replay_parser.add_argument(
@@ -753,10 +1051,54 @@ def main() -> None:
         ),
     )
     pack_replay_parser.add_argument(
+        "--expected-action-plan-count",
+        dest="pack_replay_expected_action_plan_count",
+        type=int,
+        help="optional expected total materialized action_plan step count for strict replay",
+    )
+    pack_replay_parser.add_argument(
+        "--expected-resolved-refs-count",
+        dest="pack_replay_expected_resolved_refs_count",
+        type=int,
+        help="optional expected total resolved_refs entry count for strict replay",
+    )
+    pack_replay_parser.add_argument(
         "--expected-mismatch-count",
         dest="pack_replay_expected_mismatch_count",
         type=int,
         help="optional expected total mismatch count for strict replay (includes runtime_error fixtures)",
+    )
+    pack_replay_parser.add_argument(
+        "--expected-mismatch-field-counts",
+        dest="pack_replay_expected_mismatch_field_counts",
+        help=(
+            "optional exact mismatch_field_counts contract for strict replay "
+            "(format: actions=<n>,trace=<n>,action_plan=<n>,resolved_refs=<n>)"
+        ),
+    )
+    pack_replay_parser.add_argument(
+        "--expected-actions-mismatch-fixture",
+        dest="pack_replay_expected_actions_mismatch_fixture_ids",
+        action="append",
+        help="optional exact actions mismatch fixture id contract for strict replay, repeatable, compared in canonical pack order",
+    )
+    pack_replay_parser.add_argument(
+        "--expected-trace-mismatch-fixture",
+        dest="pack_replay_expected_trace_mismatch_fixture_ids",
+        action="append",
+        help="optional exact trace mismatch fixture id contract for strict replay, repeatable, compared in canonical pack order",
+    )
+    pack_replay_parser.add_argument(
+        "--expected-action-plan-mismatch-fixture",
+        dest="pack_replay_expected_action_plan_mismatch_fixture_ids",
+        action="append",
+        help="optional exact action_plan mismatch fixture id contract for strict replay, repeatable, compared in canonical pack order",
+    )
+    pack_replay_parser.add_argument(
+        "--expected-resolved-refs-mismatch-fixture",
+        dest="pack_replay_expected_resolved_refs_mismatch_fixture_ids",
+        action="append",
+        help="optional exact resolved_refs mismatch fixture id contract for strict replay, repeatable, compared in canonical pack order",
     )
     pack_replay_parser.add_argument(
         "--expected-expectation-mismatch-count",
@@ -773,7 +1115,7 @@ def main() -> None:
     pack_replay_parser.add_argument(
         "--expected-rule-source-status",
         dest="pack_replay_expected_rule_source_status",
-        choices=("ok", "mismatch"),
+        choices=PROGRAM_PACK_RULE_SOURCE_STATUSES,
         help="optional expected rule_source_status value for strict replay",
     )
     pack_replay_parser.add_argument(
@@ -795,6 +1137,14 @@ def main() -> None:
         help="optional exact aggregate selected pack path contract for strict collection replay, repeatable, compared in canonical replay order",
     )
     pack_replay_parser.add_argument(
+        "--expected-rule-source-status-counts",
+        dest="pack_replay_expected_rule_source_status_counts",
+        help=(
+            "optional exact aggregate rule_source_status_counts contract for strict collection replay "
+            "(format: ok=<n>,mismatch=<n>)"
+        ),
+    )
+    pack_replay_parser.add_argument(
         "--summary",
         action="store_true",
         help="emit deterministic replay summary output instead of JSON details",
@@ -809,6 +1159,12 @@ def main() -> None:
         "--json-file",
         help=(
             "write the deterministic replay JSON envelope to file without changing stdout"
+        ),
+    )
+    pack_replay_parser.add_argument(
+        "--handoff-bundle-file",
+        help=(
+            "write a deterministic JSON handoff bundle with summary output, exit code, and the full replay envelope without changing stdout"
         ),
     )
     pack_replay_parser.add_argument(
@@ -916,6 +1272,22 @@ def main() -> None:
                     args.batch_output_compare_expected_metadata_mismatches_count,
                 ),
                 (
+                    "--batch-output-compare-expected-baseline-action-plan-count",
+                    args.batch_output_compare_expected_baseline_action_plan_count,
+                ),
+                (
+                    "--batch-output-compare-expected-candidate-action-plan-count",
+                    args.batch_output_compare_expected_candidate_action_plan_count,
+                ),
+                (
+                    "--batch-output-compare-expected-baseline-resolved-refs-count",
+                    args.batch_output_compare_expected_baseline_resolved_refs_count,
+                ),
+                (
+                    "--batch-output-compare-expected-candidate-resolved-refs-count",
+                    args.batch_output_compare_expected_candidate_resolved_refs_count,
+                ),
+                (
                     "--batch-output-compare-expected-selected-baseline-count",
                     args.batch_output_compare_expected_selected_baseline_count,
                 ),
@@ -1001,6 +1373,8 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-compare-json-file must be non-empty when provided"
                     )
+                if args.handoff_bundle_file == "":
+                    raise ValueError("--handoff-bundle-file must be non-empty when provided")
                 if (
                     args.output is not None
                     and args.batch_output_compare_summary_file is not None
@@ -1022,6 +1396,36 @@ def main() -> None:
                 ):
                     raise ValueError(
                         "--output must differ from --batch-output-compare-json-file so eval output cannot overwrite the compare sidecar"
+                    )
+                if (
+                    args.output is not None
+                    and args.handoff_bundle_file is not None
+                    and _paths_are_same_location(args.output, args.handoff_bundle_file)
+                ):
+                    raise ValueError(
+                        "--handoff-bundle-file must differ from --output so eval output cannot overwrite the handoff bundle"
+                    )
+                if (
+                    args.handoff_bundle_file is not None
+                    and args.batch_output_compare_summary_file is not None
+                    and _paths_are_same_location(
+                        args.handoff_bundle_file,
+                        args.batch_output_compare_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--handoff-bundle-file must differ from --batch-output-compare-summary-file because they export different output shapes"
+                    )
+                if (
+                    args.handoff_bundle_file is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.handoff_bundle_file,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--handoff-bundle-file must differ from --batch-output-compare-json-file because they export different output shapes"
                     )
                 if (
                     args.summary
@@ -1101,6 +1505,10 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-summary-file is not supported with --batch-output-compare"
                     )
+                if args.batch_output_handoff_bundle_file is not None:
+                    raise ValueError(
+                        "--batch-output-handoff-bundle-file is not supported with --batch-output-compare"
+                    )
                 if self_compare_enabled:
                     raise ValueError(
                         "--batch-output-self-compare-against is not supported with --batch-output-compare"
@@ -1169,6 +1577,14 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-verify-expected-event-count is not supported with --batch-output-compare"
                     )
+                if args.batch_output_verify_expected_action_plan_count is not None:
+                    raise ValueError(
+                        "--batch-output-verify-expected-action-plan-count is not supported with --batch-output-compare"
+                    )
+                if args.batch_output_verify_expected_resolved_refs_count is not None:
+                    raise ValueError(
+                        "--batch-output-verify-expected-resolved-refs-count is not supported with --batch-output-compare"
+                    )
                 if args.batch_output_verify_expected_verified_count is not None:
                     raise ValueError(
                         "--batch-output-verify-expected-verified-count is not supported with --batch-output-compare"
@@ -1233,6 +1649,8 @@ def main() -> None:
                     raise ValueError("--meta is not supported with --batch-output-compare")
                 if args.generated_at is not None:
                     raise ValueError("--generated-at is not supported with --batch-output-compare")
+                if args.action_plan:
+                    raise ValueError("--action-plan is not supported with --batch-output-compare")
                 if args.summary_file is not None:
                     raise ValueError("--summary-file is not supported with --batch-output-compare")
                 if args.json_file is not None:
@@ -1254,6 +1672,10 @@ def main() -> None:
                     expected_missing_baseline_count=args.batch_output_compare_expected_missing_baseline_count,
                     expected_missing_candidate_count=args.batch_output_compare_expected_missing_candidate_count,
                     expected_metadata_mismatches_count=args.batch_output_compare_expected_metadata_mismatches_count,
+                    expected_baseline_action_plan_count=args.batch_output_compare_expected_baseline_action_plan_count,
+                    expected_candidate_action_plan_count=args.batch_output_compare_expected_candidate_action_plan_count,
+                    expected_baseline_resolved_refs_count=args.batch_output_compare_expected_baseline_resolved_refs_count,
+                    expected_candidate_resolved_refs_count=args.batch_output_compare_expected_candidate_resolved_refs_count,
                     expected_selected_baseline_count=args.batch_output_compare_expected_selected_baseline_count,
                     expected_selected_candidate_count=args.batch_output_compare_expected_selected_candidate_count,
                     expected_selected_baseline_artifacts=normalized_compare_expected_selected_baseline_artifacts,
@@ -1285,15 +1707,33 @@ def main() -> None:
                 if args.batch_output_compare_json_file:
                     _write_eval_output(args.batch_output_compare_json_file, rendered_compare_json)
 
-                print(rendered_output)
-
+                exit_code = 0
                 if strict_compare_profile is not None:
                     strict_profile_mismatches = compare_summary.get("strict_profile_mismatches")
                     if isinstance(strict_profile_mismatches, list) and strict_profile_mismatches:
-                        raise SystemExit(1)
-                    return
+                        exit_code = 1
+                elif compare_summary["status"] != "ok":
+                    exit_code = 1
 
-                if compare_summary["status"] != "ok":
+                if args.handoff_bundle_file:
+                    _write_eval_handoff_bundle_file(
+                        args.handoff_bundle_file,
+                        _build_batch_output_compare_handoff_bundle(
+                            summary_payload=compare_summary,
+                            summary_line=_render_batch_output_compare_summary(
+                                compare_summary,
+                                summary=True,
+                            ),
+                            exit_code=exit_code,
+                            bundle_path=args.handoff_bundle_file,
+                            candidate_root=args.batch_output_compare,
+                            baseline_root=args.batch_output_compare_against,
+                        ),
+                    )
+
+                print(rendered_output)
+
+                if exit_code != 0:
                     raise SystemExit(1)
                 return
 
@@ -1423,6 +1863,28 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-compare-json-file must differ from --batch-output-self-verify-json-file so compare output cannot overwrite the self-verify sidecar"
                     )
+                if (
+                    args.batch_output_handoff_bundle_file is not None
+                    and args.batch_output_compare_summary_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_handoff_bundle_file,
+                        args.batch_output_compare_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-summary-file must differ from --batch-output-handoff-bundle-file so compare output cannot overwrite the handoff bundle"
+                    )
+                if (
+                    args.batch_output_handoff_bundle_file is not None
+                    and args.batch_output_compare_json_file is not None
+                    and _paths_are_same_location(
+                        args.batch_output_handoff_bundle_file,
+                        args.batch_output_compare_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--batch-output-compare-json-file must differ from --batch-output-handoff-bundle-file so compare output cannot overwrite the handoff bundle"
+                    )
                 if args.batch_output_compare_profile is not None and not self_compare_strict_enabled:
                     raise ValueError(
                         "--batch-output-compare-profile requires --batch-output-self-compare-strict"
@@ -1452,6 +1914,10 @@ def main() -> None:
                         expected_missing_baseline_count=args.batch_output_compare_expected_missing_baseline_count,
                         expected_missing_candidate_count=args.batch_output_compare_expected_missing_candidate_count,
                         expected_metadata_mismatches_count=args.batch_output_compare_expected_metadata_mismatches_count,
+                        expected_baseline_action_plan_count=args.batch_output_compare_expected_baseline_action_plan_count,
+                        expected_candidate_action_plan_count=args.batch_output_compare_expected_candidate_action_plan_count,
+                        expected_baseline_resolved_refs_count=args.batch_output_compare_expected_baseline_resolved_refs_count,
+                        expected_candidate_resolved_refs_count=args.batch_output_compare_expected_candidate_resolved_refs_count,
                         expected_selected_baseline_count=args.batch_output_compare_expected_selected_baseline_count,
                         expected_selected_candidate_count=args.batch_output_compare_expected_selected_candidate_count,
                         expected_selected_baseline_artifacts=normalized_compare_expected_selected_baseline_artifacts,
@@ -1500,6 +1966,20 @@ def main() -> None:
                 ):
                     raise ValueError(
                         "--batch-output-verify-expected-event-count requires strict verify"
+                    )
+                if (
+                    args.batch_output_verify_expected_action_plan_count is not None
+                    and not self_verify_strict_enabled
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-action-plan-count requires strict verify"
+                    )
+                if (
+                    args.batch_output_verify_expected_resolved_refs_count is not None
+                    and not self_verify_strict_enabled
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-resolved-refs-count requires strict verify"
                     )
                 if (
                     args.batch_output_verify_expected_verified_count is not None
@@ -1615,6 +2095,20 @@ def main() -> None:
                     ):
                         raise ValueError("--batch-output-verify-expected-event-count must be >= 0")
                     if (
+                        args.batch_output_verify_expected_action_plan_count is not None
+                        and args.batch_output_verify_expected_action_plan_count < 0
+                    ):
+                        raise ValueError(
+                            "--batch-output-verify-expected-action-plan-count must be >= 0"
+                        )
+                    if (
+                        args.batch_output_verify_expected_resolved_refs_count is not None
+                        and args.batch_output_verify_expected_resolved_refs_count < 0
+                    ):
+                        raise ValueError(
+                            "--batch-output-verify-expected-resolved-refs-count must be >= 0"
+                        )
+                    if (
                         args.batch_output_verify_expected_verified_count is not None
                         and args.batch_output_verify_expected_verified_count < 0
                     ):
@@ -1700,6 +2194,8 @@ def main() -> None:
                         expected_layout=args.batch_output_verify_expected_layout,
                         expected_run_id_pattern=args.batch_output_verify_expected_run_id_pattern,
                         expected_event_count=args.batch_output_verify_expected_event_count,
+                        expected_action_plan_count=args.batch_output_verify_expected_action_plan_count,
+                        expected_resolved_refs_count=args.batch_output_verify_expected_resolved_refs_count,
                         expected_verified_count=args.batch_output_verify_expected_verified_count,
                         expected_checked_count=args.batch_output_verify_expected_checked_count,
                         expected_missing_count=args.batch_output_verify_expected_missing_count,
@@ -1734,6 +2230,38 @@ def main() -> None:
                 if args.batch_output_verify_json_file == "":
                     raise ValueError(
                         "--batch-output-verify-json-file must be non-empty when provided"
+                    )
+                if args.handoff_bundle_file == "":
+                    raise ValueError("--handoff-bundle-file must be non-empty when provided")
+                if (
+                    args.output is not None
+                    and args.handoff_bundle_file is not None
+                    and _paths_are_same_location(args.output, args.handoff_bundle_file)
+                ):
+                    raise ValueError(
+                        "--handoff-bundle-file must differ from --output so eval output cannot overwrite the handoff bundle"
+                    )
+                if (
+                    args.handoff_bundle_file is not None
+                    and args.batch_output_verify_summary_file is not None
+                    and _paths_are_same_location(
+                        args.handoff_bundle_file,
+                        args.batch_output_verify_summary_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--handoff-bundle-file must differ from --batch-output-verify-summary-file because they export different output shapes"
+                    )
+                if (
+                    args.handoff_bundle_file is not None
+                    and args.batch_output_verify_json_file is not None
+                    and _paths_are_same_location(
+                        args.handoff_bundle_file,
+                        args.batch_output_verify_json_file,
+                    )
+                ):
+                    raise ValueError(
+                        "--handoff-bundle-file must differ from --batch-output-verify-json-file because they export different output shapes"
                     )
                 if args.summary_policy:
                     raise ValueError("--summary-policy is not supported with --batch-output-verify")
@@ -1777,6 +2305,10 @@ def main() -> None:
                     raise ValueError(
                         "--batch-output-summary-file is not supported with --batch-output-verify"
                     )
+                if args.batch_output_handoff_bundle_file is not None:
+                    raise ValueError(
+                        "--batch-output-handoff-bundle-file is not supported with --batch-output-verify"
+                    )
                 if args.batch_output_self_verify:
                     raise ValueError("--batch-output-self-verify is not supported with --batch-output-verify")
                 if args.batch_output_self_verify_strict:
@@ -1795,6 +2327,8 @@ def main() -> None:
                     raise ValueError("--meta is not supported with --batch-output-verify")
                 if args.generated_at is not None:
                     raise ValueError("--generated-at is not supported with --batch-output-verify")
+                if args.action_plan:
+                    raise ValueError("--action-plan is not supported with --batch-output-verify")
                 if args.summary_file is not None:
                     raise ValueError("--summary-file is not supported with --batch-output-verify")
                 if args.json_file is not None:
@@ -1817,6 +2351,20 @@ def main() -> None:
                     )
                 if args.batch_output_verify_expected_event_count is not None and not strict_verify_enabled:
                     raise ValueError("--batch-output-verify-expected-event-count requires strict verify")
+                if (
+                    args.batch_output_verify_expected_action_plan_count is not None
+                    and not strict_verify_enabled
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-action-plan-count requires strict verify"
+                    )
+                if (
+                    args.batch_output_verify_expected_resolved_refs_count is not None
+                    and not strict_verify_enabled
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-resolved-refs-count requires strict verify"
+                    )
                 if args.batch_output_verify_expected_verified_count is not None and not strict_verify_enabled:
                     raise ValueError("--batch-output-verify-expected-verified-count requires strict verify")
                 if args.batch_output_verify_expected_checked_count is not None and not strict_verify_enabled:
@@ -1907,6 +2455,20 @@ def main() -> None:
                 ):
                     raise ValueError("--batch-output-verify-expected-event-count must be >= 0")
                 if (
+                    args.batch_output_verify_expected_action_plan_count is not None
+                    and args.batch_output_verify_expected_action_plan_count < 0
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-action-plan-count must be >= 0"
+                    )
+                if (
+                    args.batch_output_verify_expected_resolved_refs_count is not None
+                    and args.batch_output_verify_expected_resolved_refs_count < 0
+                ):
+                    raise ValueError(
+                        "--batch-output-verify-expected-resolved-refs-count must be >= 0"
+                    )
+                if (
                     args.batch_output_verify_expected_verified_count is not None
                     and args.batch_output_verify_expected_verified_count < 0
                 ):
@@ -1992,6 +2554,8 @@ def main() -> None:
                     expected_layout=args.batch_output_verify_expected_layout,
                     expected_run_id_pattern=args.batch_output_verify_expected_run_id_pattern,
                     expected_event_count=args.batch_output_verify_expected_event_count,
+                    expected_action_plan_count=args.batch_output_verify_expected_action_plan_count,
+                    expected_resolved_refs_count=args.batch_output_verify_expected_resolved_refs_count,
                     expected_verified_count=args.batch_output_verify_expected_verified_count,
                     expected_checked_count=args.batch_output_verify_expected_checked_count,
                     expected_missing_count=args.batch_output_verify_expected_missing_count,
@@ -2031,9 +2595,25 @@ def main() -> None:
                 if args.batch_output_verify_json_file:
                     _write_eval_output(args.batch_output_verify_json_file, rendered_verify_json)
 
+                exit_code = 0 if verify_summary["status"] == "ok" else 1
+                if args.handoff_bundle_file:
+                    _write_eval_handoff_bundle_file(
+                        args.handoff_bundle_file,
+                        _build_batch_output_verify_handoff_bundle(
+                            summary_payload=verify_summary,
+                            summary_line=_render_batch_output_verify_summary(
+                                verify_summary,
+                                summary=True,
+                            ),
+                            exit_code=exit_code,
+                            bundle_path=args.handoff_bundle_file,
+                            output_root=args.batch_output_verify,
+                        ),
+                    )
+
                 print(rendered_output)
 
-                if verify_summary["status"] != "ok":
+                if exit_code != 0:
                     raise SystemExit(1)
                 return
 
@@ -2083,6 +2663,12 @@ def main() -> None:
                 raise ValueError("--batch-output-summary-file must be non-empty when provided")
             if args.batch_output_summary_file is not None and args.summary:
                 raise ValueError("--batch-output-summary-file is not supported with --summary")
+            if args.batch_output_handoff_bundle_file is not None and not args.batch_output:
+                raise ValueError("--batch-output-handoff-bundle-file requires --batch-output")
+            if args.batch_output_handoff_bundle_file == "":
+                raise ValueError(
+                    "--batch-output-handoff-bundle-file must be non-empty when provided"
+                )
             if args.batch_output_self_verify and not args.batch_output:
                 raise ValueError("--batch-output-self-verify requires --batch-output")
             if args.batch_output_self_verify_strict and not args.batch_output_self_verify:
@@ -2134,6 +2720,17 @@ def main() -> None:
                     "--batch-output-self-verify-json-file must be outside --batch-output to avoid overwriting verified artifacts"
                 )
             if (
+                args.batch_output_handoff_bundle_file is not None
+                and args.batch_output
+                and _path_is_within_directory(
+                    args.batch_output_handoff_bundle_file,
+                    args.batch_output,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-handoff-bundle-file must be outside --batch-output to avoid mutating handed-off artifacts"
+                )
+            if (
                 args.output is not None
                 and args.batch_output_self_verify_summary_file is not None
                 and _paths_are_same_location(
@@ -2154,6 +2751,63 @@ def main() -> None:
             ):
                 raise ValueError(
                     "--output must differ from --batch-output-self-verify-json-file so eval output cannot overwrite the self-verify sidecar"
+                )
+            if (
+                args.output is not None
+                and args.batch_output_handoff_bundle_file is not None
+                and _paths_are_same_location(args.output, args.batch_output_handoff_bundle_file)
+            ):
+                raise ValueError(
+                    "--output must differ from --batch-output-handoff-bundle-file so eval output cannot overwrite the handoff bundle"
+                )
+            if (
+                args.summary_file is not None
+                and args.batch_output_handoff_bundle_file is not None
+                and _paths_are_same_location(args.summary_file, args.batch_output_handoff_bundle_file)
+            ):
+                raise ValueError(
+                    "--summary-file must differ from --batch-output-handoff-bundle-file because they export different output shapes"
+                )
+            if (
+                args.json_file is not None
+                and args.batch_output_handoff_bundle_file is not None
+                and _paths_are_same_location(args.json_file, args.batch_output_handoff_bundle_file)
+            ):
+                raise ValueError(
+                    "--json-file must differ from --batch-output-handoff-bundle-file because they export different output shapes"
+                )
+            if (
+                args.batch_output_summary_file is not None
+                and args.batch_output_handoff_bundle_file is not None
+                and _paths_are_same_location(
+                    args.batch_output_summary_file,
+                    args.batch_output_handoff_bundle_file,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-summary-file must differ from --batch-output-handoff-bundle-file because the handoff bundle embeds a different artifact shape"
+                )
+            if (
+                args.batch_output_self_verify_summary_file is not None
+                and args.batch_output_handoff_bundle_file is not None
+                and _paths_are_same_location(
+                    args.batch_output_self_verify_summary_file,
+                    args.batch_output_handoff_bundle_file,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-self-verify-summary-file must differ from --batch-output-handoff-bundle-file so the handoff bundle cannot be overwritten"
+                )
+            if (
+                args.batch_output_self_verify_json_file is not None
+                and args.batch_output_handoff_bundle_file is not None
+                and _paths_are_same_location(
+                    args.batch_output_self_verify_json_file,
+                    args.batch_output_handoff_bundle_file,
+                )
+            ):
+                raise ValueError(
+                    "--batch-output-self-verify-json-file must differ from --batch-output-handoff-bundle-file so the handoff bundle cannot be overwritten"
                 )
             if (
                 args.batch_output_summary_file is not None
@@ -2203,6 +2857,34 @@ def main() -> None:
                 raise ValueError("--summary-file must be non-empty when provided")
             if args.json_file == "":
                 raise ValueError("--json-file must be non-empty when provided")
+            if args.handoff_bundle_file == "":
+                raise ValueError("--handoff-bundle-file must be non-empty when provided")
+            if args.handoff_bundle_file is not None and args.batch_output is not None:
+                raise ValueError("--handoff-bundle-file is not supported with --batch-output")
+            if (
+                args.handoff_bundle_file is not None
+                and args.summary_file is not None
+                and _paths_are_same_location(args.handoff_bundle_file, args.summary_file)
+            ):
+                raise ValueError(
+                    "--handoff-bundle-file must differ from --summary-file because they export different output shapes"
+                )
+            if (
+                args.handoff_bundle_file is not None
+                and args.json_file is not None
+                and _paths_are_same_location(args.handoff_bundle_file, args.json_file)
+            ):
+                raise ValueError(
+                    "--handoff-bundle-file must differ from --json-file because they export different output shapes"
+                )
+            if (
+                args.handoff_bundle_file is not None
+                and args.output is not None
+                and _paths_are_same_location(args.handoff_bundle_file, args.output)
+            ):
+                raise ValueError(
+                    "--handoff-bundle-file must differ from --output so eval output cannot overwrite the handoff bundle"
+                )
             if (
                 args.summary_file is not None
                 and args.json_file is not None
@@ -2237,6 +2919,8 @@ def main() -> None:
                 or args.batch_expected_total_event_count is not None
                 or normalized_batch_expected_total_events is not None
                 or normalized_batch_expected_selected_events is not None
+                or args.batch_expected_action_plan_count is not None
+                or args.batch_expected_resolved_refs_count is not None
             )
             if args.batch_strict and not has_batch_strict_contract:
                 raise ValueError(
@@ -2256,6 +2940,14 @@ def main() -> None:
                 and not batch_strict_enabled
             ):
                 raise ValueError("--batch-expected-selected-event requires --batch-strict")
+            if args.batch_expected_action_plan_count is not None and not batch_strict_enabled:
+                raise ValueError("--batch-expected-action-plan-count requires --batch-strict")
+            if args.batch_expected_resolved_refs_count is not None and not batch_strict_enabled:
+                raise ValueError("--batch-expected-resolved-refs-count requires --batch-strict")
+            if args.batch_expected_action_plan_count is not None and not args.action_plan:
+                raise ValueError("--batch-expected-action-plan-count requires --action-plan")
+            if args.batch_expected_resolved_refs_count is not None and not args.action_plan:
+                raise ValueError("--batch-expected-resolved-refs-count requires --action-plan")
             if (
                 args.batch_expected_event_count is not None
                 and args.batch_expected_event_count < 0
@@ -2266,12 +2958,24 @@ def main() -> None:
                 and args.batch_expected_total_event_count < 0
             ):
                 raise ValueError("--batch-expected-total-event-count must be >= 0")
+            if (
+                args.batch_expected_action_plan_count is not None
+                and args.batch_expected_action_plan_count < 0
+            ):
+                raise ValueError("--batch-expected-action-plan-count must be >= 0")
+            if (
+                args.batch_expected_resolved_refs_count is not None
+                and args.batch_expected_resolved_refs_count < 0
+            ):
+                raise ValueError("--batch-expected-resolved-refs-count must be >= 0")
             batch_strict_profile = _resolve_eval_batch_strict_profile(
                 enabled=batch_strict_enabled,
                 expected_event_count=args.batch_expected_event_count,
                 expected_total_event_count=args.batch_expected_total_event_count,
                 expected_total_event_names=normalized_batch_expected_total_events,
                 expected_selected_event_names=normalized_batch_expected_selected_events,
+                expected_action_plan_count=args.batch_expected_action_plan_count,
+                expected_resolved_refs_count=args.batch_expected_resolved_refs_count,
             )
             if args.batch_output_run_id == "":
                 raise ValueError("--batch-output-run-id must be non-empty when provided")
@@ -2300,13 +3004,19 @@ def main() -> None:
                     sidecar_refs=sidecar_refs,
                     include_rule_counts=bool(args.batch_summary_rule_counts),
                     include_action_kind_counts=bool(args.batch_summary_action_kind_counts),
+                    include_action_plan=bool(args.action_plan),
                     strict_profile=batch_strict_profile,
                 )
             else:
                 assert args.input is not None
                 event_payload = _read_source(args.input)
                 event = json.loads(event_payload)
-                envelope = _eval_program_envelope(source, event, sidecar_refs=sidecar_refs)
+                envelope = _eval_program_envelope(
+                    source,
+                    event,
+                    sidecar_refs=sidecar_refs,
+                    include_action_plan=bool(args.action_plan),
+                )
                 envelope = _with_eval_metadata(
                     envelope,
                     include_meta=bool(args.meta),
@@ -2314,6 +3024,35 @@ def main() -> None:
                     source=source,
                     event_payload=event_payload,
                 )
+
+            exit_policy = _resolve_eval_exit_policy(
+                strict=bool(args.strict),
+                exit_policy=str(args.exit_policy),
+            )
+            should_fail_exit = _should_fail_eval_exit(envelope=envelope, exit_policy=exit_policy)
+            exit_code = 1 if should_fail_exit else 0
+            rendered_json = _render_eval_output(
+                envelope,
+                summary=False,
+                include_summary_policy=False,
+                exit_policy=exit_policy,
+                exit_code=exit_code,
+            )
+            rendered_summary = _render_eval_output(
+                envelope,
+                summary=True,
+                include_summary_policy=bool(args.summary_policy),
+                exit_policy=exit_policy,
+                exit_code=exit_code,
+            )
+            rendered_handoff_summary = _render_eval_output(
+                envelope,
+                summary=True,
+                include_summary_policy=False,
+                exit_policy=exit_policy,
+                exit_code=exit_code,
+            )
+            rendered_output = rendered_summary if args.summary else rendered_json
 
             if args.batch_output_summary_file:
                 _write_batch_output_summary_file(args.batch_output_summary_file, envelope)
@@ -2327,7 +3066,7 @@ def main() -> None:
                         and _batch_output_dir_has_manifest(args.batch_output_self_compare_against)
                     )
                 )
-                _write_batch_output_artifacts(
+                batch_output_summary = _write_batch_output_artifacts(
                     output_dir=args.batch_output,
                     envelope=envelope,
                     errors_only=bool(args.batch_output_errors_only),
@@ -2335,6 +3074,28 @@ def main() -> None:
                     layout=str(args.batch_output_layout or "flat"),
                     run_id=args.batch_output_run_id,
                 )
+                self_verify_summary: dict[str, object] | None = None
+                self_compare_summary: dict[str, object] | None = None
+
+                def write_handoff_bundle(*, command_exit_code: int | None = None) -> None:
+                    if args.batch_output_handoff_bundle_file is None:
+                        return
+                    handoff_bundle = _build_batch_output_handoff_bundle(
+                        batch_output_summary=batch_output_summary,
+                        self_verify_summary=self_verify_summary,
+                        self_compare_summary=self_compare_summary,
+                        summary_line=rendered_handoff_summary,
+                        exit_policy=exit_policy,
+                        exit_code=exit_code if command_exit_code is None else command_exit_code,
+                        bundle_path=args.batch_output_handoff_bundle_file,
+                        batch_output_root=args.batch_output,
+                        self_compare_against_root=args.batch_output_self_compare_against,
+                    )
+                    _write_batch_output_handoff_bundle_file(
+                        args.batch_output_handoff_bundle_file,
+                        handoff_bundle,
+                    )
+
                 if args.batch_output_self_verify:
                     self_verify_summary = _verify_batch_output_artifacts(
                         args.batch_output,
@@ -2359,6 +3120,7 @@ def main() -> None:
                             rendered_self_verify_json,
                         )
                     if self_verify_summary.get("status") != "ok":
+                        write_handoff_bundle(command_exit_code=1)
                         rendered_self_verify_summary = _render_batch_output_verify_summary(
                             self_verify_summary,
                             summary=True,
@@ -2401,6 +3163,7 @@ def main() -> None:
                             rendered_self_compare_json,
                         )
                     if self_compare_summary.get("status") != "ok":
+                        write_handoff_bundle(command_exit_code=1)
                         rendered_self_compare_summary = _render_batch_output_compare_summary(
                             self_compare_summary,
                             summary=True,
@@ -2414,27 +3177,7 @@ def main() -> None:
                             f"{self_compare_flag} failed: {rendered_self_compare_summary}"
                         )
 
-            exit_policy = _resolve_eval_exit_policy(
-                strict=bool(args.strict),
-                exit_policy=str(args.exit_policy),
-            )
-            should_fail_exit = _should_fail_eval_exit(envelope=envelope, exit_policy=exit_policy)
-            exit_code = 1 if should_fail_exit else 0
-            rendered_json = _render_eval_output(
-                envelope,
-                summary=False,
-                include_summary_policy=False,
-                exit_policy=exit_policy,
-                exit_code=exit_code,
-            )
-            rendered_summary = _render_eval_output(
-                envelope,
-                summary=True,
-                include_summary_policy=bool(args.summary_policy),
-                exit_policy=exit_policy,
-                exit_code=exit_code,
-            )
-            rendered_output = rendered_summary if args.summary else rendered_json
+                write_handoff_bundle()
 
             if args.output:
                 _write_eval_output(args.output, rendered_output)
@@ -2442,6 +3185,20 @@ def main() -> None:
                 _write_eval_output(args.summary_file, rendered_summary)
             if args.json_file:
                 _write_eval_output(args.json_file, rendered_json)
+            if args.handoff_bundle_file:
+                _write_eval_handoff_bundle_file(
+                    args.handoff_bundle_file,
+                    _build_eval_handoff_bundle(
+                        envelope=envelope,
+                        summary_line=rendered_handoff_summary,
+                        exit_policy=exit_policy,
+                        exit_code=exit_code,
+                        bundle_path=args.handoff_bundle_file,
+                        program_path=args.path,
+                        input_path=args.input,
+                        batch_path=args.batch,
+                    ),
+                )
 
             print(rendered_output)
 
@@ -2460,8 +3217,45 @@ def main() -> None:
                 raise ValueError("--summary-file must be non-empty when provided")
             if args.json_file == "":
                 raise ValueError("--json-file must be non-empty when provided")
+            if args.handoff_bundle_file == "":
+                raise ValueError("--handoff-bundle-file must be non-empty when provided")
             if args.fixture_class_summary_file == "":
                 raise ValueError("--fixture-class-summary-file must be non-empty when provided")
+            if (
+                args.summary_file is not None
+                and args.handoff_bundle_file is not None
+                and _paths_are_same_location(args.summary_file, args.handoff_bundle_file)
+            ):
+                raise ValueError(
+                    "--handoff-bundle-file must differ from --summary-file because they export different output shapes"
+                )
+            if (
+                args.json_file is not None
+                and args.handoff_bundle_file is not None
+                and _paths_are_same_location(args.json_file, args.handoff_bundle_file)
+            ):
+                raise ValueError(
+                    "--handoff-bundle-file must differ from --json-file because they export different output shapes"
+                )
+            if (
+                args.fixture_class_summary_file is not None
+                and args.handoff_bundle_file is not None
+                and _paths_are_same_location(
+                    args.fixture_class_summary_file,
+                    args.handoff_bundle_file,
+                )
+            ):
+                raise ValueError(
+                    "--handoff-bundle-file must differ from --fixture-class-summary-file because they export different output shapes"
+                )
+            if (
+                args.output is not None
+                and args.handoff_bundle_file is not None
+                and _paths_are_same_location(args.output, args.handoff_bundle_file)
+            ):
+                raise ValueError(
+                    "--handoff-bundle-file must differ from --output so replay output cannot overwrite the handoff bundle"
+                )
 
             normalized_expected_pack_id = None
             if args.pack_replay_expected_pack_id is not None:
@@ -2491,9 +3285,35 @@ def main() -> None:
                 args.pack_replay_expected_selected_pack_paths,
                 option_name="--expected-selected-pack",
             )
+            normalized_expected_actions_mismatch_fixture_ids = _normalize_program_pack_fixture_ids(
+                args.pack_replay_expected_actions_mismatch_fixture_ids,
+                option_name="--expected-actions-mismatch-fixture",
+            )
+            normalized_expected_trace_mismatch_fixture_ids = _normalize_program_pack_fixture_ids(
+                args.pack_replay_expected_trace_mismatch_fixture_ids,
+                option_name="--expected-trace-mismatch-fixture",
+            )
+            normalized_expected_action_plan_mismatch_fixture_ids = _normalize_program_pack_fixture_ids(
+                args.pack_replay_expected_action_plan_mismatch_fixture_ids,
+                option_name="--expected-action-plan-mismatch-fixture",
+            )
+            normalized_expected_resolved_refs_mismatch_fixture_ids = _normalize_program_pack_fixture_ids(
+                args.pack_replay_expected_resolved_refs_mismatch_fixture_ids,
+                option_name="--expected-resolved-refs-mismatch-fixture",
+            )
             normalized_expected_fixture_class_counts = (
                 _normalize_program_pack_fixture_class_counts(
                     args.pack_replay_expected_fixture_class_counts
+                )
+            )
+            normalized_expected_mismatch_field_counts = (
+                _normalize_program_pack_mismatch_field_counts(
+                    args.pack_replay_expected_mismatch_field_counts
+                )
+            )
+            normalized_expected_rule_source_status_counts = (
+                _normalize_program_pack_rule_source_status_counts(
+                    args.pack_replay_expected_rule_source_status_counts
                 )
             )
             normalized_include_pack_globs = _normalize_program_pack_pack_globs(
@@ -2505,6 +3325,24 @@ def main() -> None:
                 args.exclude_pack,
             )
 
+            shared_pack_expected_selectors = [
+                (
+                    "--expected-fixture-class-counts",
+                    normalized_expected_fixture_class_counts,
+                ),
+                (
+                    "--expected-mismatch-field-counts",
+                    normalized_expected_mismatch_field_counts,
+                ),
+                (
+                    "--expected-action-plan-count",
+                    args.pack_replay_expected_action_plan_count,
+                ),
+                (
+                    "--expected-resolved-refs-count",
+                    args.pack_replay_expected_resolved_refs_count,
+                ),
+            ]
             single_pack_expected_selectors = [
                 ("--expected-pack-id", normalized_expected_pack_id),
                 ("--expected-baseline-shape", args.pack_replay_expected_baseline_shape),
@@ -2527,8 +3365,20 @@ def main() -> None:
                     normalized_expected_runtime_error_fixture_ids,
                 ),
                 (
-                    "--expected-fixture-class-counts",
-                    normalized_expected_fixture_class_counts,
+                    "--expected-actions-mismatch-fixture",
+                    normalized_expected_actions_mismatch_fixture_ids,
+                ),
+                (
+                    "--expected-trace-mismatch-fixture",
+                    normalized_expected_trace_mismatch_fixture_ids,
+                ),
+                (
+                    "--expected-action-plan-mismatch-fixture",
+                    normalized_expected_action_plan_mismatch_fixture_ids,
+                ),
+                (
+                    "--expected-resolved-refs-mismatch-fixture",
+                    normalized_expected_resolved_refs_mismatch_fixture_ids,
                 ),
                 ("--expected-mismatch-count", args.pack_replay_expected_mismatch_count),
                 (
@@ -2544,7 +3394,7 @@ def main() -> None:
                     args.pack_replay_expected_rule_source_status,
                 ),
             ]
-            aggregate_pack_expected_selectors = [
+            aggregate_only_pack_expected_selectors = [
                 ("--expected-pack-count", args.pack_replay_expected_pack_count),
                 (
                     "--expected-total-pack-count",
@@ -2554,7 +3404,14 @@ def main() -> None:
                     "--expected-selected-pack",
                     normalized_expected_selected_pack_paths,
                 ),
+                (
+                    "--expected-rule-source-status-counts",
+                    normalized_expected_rule_source_status_counts,
+                ),
             ]
+            aggregate_pack_expected_selectors = (
+                aggregate_only_pack_expected_selectors + shared_pack_expected_selectors
+            )
             aggregate_pack_selectors = [
                 ("--include-pack", normalized_include_pack_globs),
                 ("--exclude-pack", normalized_exclude_pack_globs),
@@ -2562,25 +3419,35 @@ def main() -> None:
             replay_target = _resolve_program_pack_replay_target(args.path)
             if replay_target.get("kind") == "single":
                 for option_name, option_value in (
-                    aggregate_pack_expected_selectors + aggregate_pack_selectors
+                    aggregate_only_pack_expected_selectors + aggregate_pack_selectors
                 ):
                     if option_value is not None:
                         raise ValueError(f"{option_name} requires aggregate pack-replay target")
+
+                if _is_program_pack_collection_strict_profile(args.pack_replay_strict_profile):
+                    raise ValueError(
+                        f"--strict-profile {args.pack_replay_strict_profile} requires aggregate pack-replay target"
+                    )
 
                 pack_replay_strict_enabled = bool(
                     args.pack_replay_strict or args.pack_replay_strict_profile is not None
                 )
                 has_pack_replay_strict_contract = bool(args.pack_replay_strict_profile is not None) or any(
-                    option_value is not None for _, option_value in single_pack_expected_selectors
+                    option_value is not None
+                    for _, option_value in (single_pack_expected_selectors + shared_pack_expected_selectors)
                 )
                 if args.pack_replay_strict and not has_pack_replay_strict_contract:
                     raise ValueError(
                         "--strict requires at least one --expected-* selector or --strict-profile"
                     )
-                for option_name, option_value in single_pack_expected_selectors:
+                for option_name, option_value in (
+                    single_pack_expected_selectors + shared_pack_expected_selectors
+                ):
                     if option_value is not None and not pack_replay_strict_enabled:
                         raise ValueError(f"{option_name} requires --strict")
-                for option_name, option_value in single_pack_expected_selectors:
+                for option_name, option_value in (
+                    single_pack_expected_selectors + shared_pack_expected_selectors
+                ):
                     if isinstance(option_value, int) and option_value < 0:
                         raise ValueError(f"{option_name} must be >= 0")
 
@@ -2596,6 +3463,13 @@ def main() -> None:
                     expected_expectation_mismatch_fixture_ids=normalized_expected_expectation_mismatch_fixture_ids,
                     expected_runtime_error_fixture_ids=normalized_expected_runtime_error_fixture_ids,
                     expected_fixture_class_counts=normalized_expected_fixture_class_counts,
+                    expected_action_plan_count=args.pack_replay_expected_action_plan_count,
+                    expected_resolved_refs_count=args.pack_replay_expected_resolved_refs_count,
+                    expected_mismatch_field_counts=normalized_expected_mismatch_field_counts,
+                    expected_actions_mismatch_fixture_ids=normalized_expected_actions_mismatch_fixture_ids,
+                    expected_trace_mismatch_fixture_ids=normalized_expected_trace_mismatch_fixture_ids,
+                    expected_action_plan_mismatch_fixture_ids=normalized_expected_action_plan_mismatch_fixture_ids,
+                    expected_resolved_refs_mismatch_fixture_ids=normalized_expected_resolved_refs_mismatch_fixture_ids,
                     expected_mismatch_count=args.pack_replay_expected_mismatch_count,
                     expected_expectation_mismatch_count=args.pack_replay_expected_expectation_mismatch_count,
                     expected_runtime_error_count=args.pack_replay_expected_runtime_error_count,
@@ -2607,6 +3481,7 @@ def main() -> None:
                     include_fixture_globs=args.include_fixture,
                     exclude_fixture_globs=args.exclude_fixture,
                     fixture_classes=args.fixture_class,
+                    mismatch_fields=args.mismatch_field,
                     strict_profile=strict_profile,
                 )
             else:
@@ -2617,11 +3492,14 @@ def main() -> None:
                     unsupported_options.append("--include-fixture")
                 if args.exclude_fixture is not None:
                     unsupported_options.append("--exclude-fixture")
-                if args.fixture_class is not None:
-                    unsupported_options.append("--fixture-class")
                 if args.fixture_class_summary_file is not None:
                     unsupported_options.append("--fixture-class-summary-file")
-                if args.pack_replay_strict_profile is not None:
+                if (
+                    args.pack_replay_strict_profile is not None
+                    and not _is_program_pack_collection_strict_profile(
+                        args.pack_replay_strict_profile
+                    )
+                ):
                     unsupported_options.append("--strict-profile")
                 for option_name, option_value in single_pack_expected_selectors:
                     if option_value is not None:
@@ -2633,15 +3511,18 @@ def main() -> None:
                         f"{unsupported_rendered}; point to a single pack directory instead"
                     )
 
-                has_aggregate_pack_strict_contract = any(
+                aggregate_pack_strict_enabled = bool(
+                    args.pack_replay_strict or args.pack_replay_strict_profile is not None
+                )
+                has_aggregate_pack_strict_contract = bool(args.pack_replay_strict_profile is not None) or any(
                     option_value is not None for _, option_value in aggregate_pack_expected_selectors
                 )
                 if args.pack_replay_strict and not has_aggregate_pack_strict_contract:
                     raise ValueError(
-                        "--strict requires at least one --expected-pack-count, --expected-total-pack-count, or --expected-selected-pack selector for aggregate pack-replay"
+                        "--strict requires at least one --expected-pack-count, --expected-total-pack-count, --expected-selected-pack, --expected-rule-source-status-counts, --expected-fixture-class-counts, --expected-mismatch-field-counts, --expected-action-plan-count, --expected-resolved-refs-count selector, or --strict-profile for aggregate pack-replay"
                     )
                 for option_name, option_value in aggregate_pack_expected_selectors:
-                    if option_value is not None and not args.pack_replay_strict:
+                    if option_value is not None and not aggregate_pack_strict_enabled:
                         raise ValueError(f"{option_name} requires --strict")
                     if isinstance(option_value, int) and option_value < 0:
                         raise ValueError(f"{option_name} must be >= 0")
@@ -2655,17 +3536,26 @@ def main() -> None:
                     )
                 )
                 strict_profile = _resolve_program_pack_collection_strict_profile(
-                    enabled=bool(args.pack_replay_strict),
+                    enabled=aggregate_pack_strict_enabled,
+                    profile=args.pack_replay_strict_profile,
                     expected_pack_count=args.pack_replay_expected_pack_count,
                     expected_total_pack_count=args.pack_replay_expected_total_pack_count,
                     expected_selected_pack_paths=normalized_expected_selected_pack_paths,
+                    expected_rule_source_status_counts=normalized_expected_rule_source_status_counts,
+                    expected_fixture_class_counts=normalized_expected_fixture_class_counts,
+                    expected_action_plan_count=args.pack_replay_expected_action_plan_count,
+                    expected_resolved_refs_count=args.pack_replay_expected_resolved_refs_count,
+                    expected_mismatch_field_counts=normalized_expected_mismatch_field_counts,
                 )
                 envelope = _replay_program_pack_collection(
                     selected_pack_entries,
                     collection_kind=str(replay_target["kind"]),
+                    target_path=str(Path(args.path).resolve()),
                     total_pack_count=total_pack_count,
                     include_pack_globs=normalized_include_pack_globs,
                     exclude_pack_globs=normalized_exclude_pack_globs,
+                    fixture_classes=args.fixture_class,
+                    mismatch_fields=args.mismatch_field,
                     strict_profile=strict_profile,
                 )
             rendered_json = _render_program_pack_replay_output(envelope, summary=False)
@@ -2684,9 +3574,21 @@ def main() -> None:
                     args.fixture_class_summary_file,
                     rendered_summary,
                 )
+            exit_code = 0 if envelope.get("status") == "ok" else 1
+            if args.handoff_bundle_file:
+                _write_handoff_bundle_file(
+                    args.handoff_bundle_file,
+                    _build_program_pack_replay_handoff_bundle(
+                        envelope=envelope,
+                        summary_line=rendered_summary,
+                        exit_code=exit_code,
+                        bundle_path=args.handoff_bundle_file,
+                        target_path=args.path,
+                    ),
+                )
             print(rendered_output)
-            if envelope.get("status") != "ok":
-                raise SystemExit(1)
+            if exit_code != 0:
+                raise SystemExit(exit_code)
             return
 
         parser.error(f"Unknown command: {args.command}")
@@ -2828,13 +3730,14 @@ def _build_program_pack_fixture_matrix(
             )
 
         if tag in {"rl", "rule"}:
-            baseline_rules.append(
-                {
-                    "id": fields.get("id"),
-                    "when": fields.get("when"),
-                    "then": fields.get("then"),
-                }
-            )
+            rule_payload = {
+                "id": fields.get("id"),
+                "when": fields.get("when"),
+                "then": fields.get("then"),
+            }
+            if "priority" in fields:
+                rule_payload["priority"] = fields.get("priority")
+            baseline_rules.append(rule_payload)
             continue
 
         if tag in {"ev", "event"}:
@@ -2852,20 +3755,34 @@ def _build_program_pack_fixture_matrix(
     fixtures: list[dict[str, object]] = []
     for index, event in enumerate(inline_events, start=1):
         event_type = event.get("type") if isinstance(event.get("type"), str) and event.get("type") else "event"
-        derived = eval_policies_envelope(event, baseline_rules, refs=baseline_refs)
+        derived = eval_policies_envelope(
+            event,
+            baseline_rules,
+            refs=baseline_refs,
+            include_action_plan=True,
+        )
         expected_actions = (
             derived.get("actions") if isinstance(derived.get("actions"), list) else []
         )
         expected_trace = derived.get("trace") if isinstance(derived.get("trace"), list) else []
-
-        fixtures.append(
-            {
-                "id": f"event-{index:02d}-{event_type}",
-                "event": event,
-                "expected_actions": expected_actions,
-                "expected_trace": expected_trace,
-            }
+        expected_action_plan = (
+            derived.get("action_plan") if isinstance(derived.get("action_plan"), list) else []
         )
+        expected_resolved_refs = (
+            derived.get("resolved_refs") if isinstance(derived.get("resolved_refs"), dict) else {}
+        )
+
+        fixture_payload: dict[str, object] = {
+            "id": f"event-{index:02d}-{event_type}",
+            "event": event,
+            "expected_actions": expected_actions,
+            "expected_trace": expected_trace,
+        }
+        if expected_action_plan:
+            fixture_payload["expected_action_plan"] = expected_action_plan
+        if expected_resolved_refs:
+            fixture_payload["expected_resolved_refs"] = expected_resolved_refs
+        fixtures.append(fixture_payload)
 
     return pack_root.name, baseline_rules, fixtures, "inline-statements"
 
@@ -2954,6 +3871,32 @@ def _normalize_program_pack_fixture_classes(
     return normalized
 
 
+def _normalize_program_pack_mismatch_fields(
+    mismatch_fields: list[str] | None,
+    *,
+    option_name: str = "--mismatch-field",
+) -> list[str] | None:
+    if mismatch_fields is None:
+        return None
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for index, mismatch_field in enumerate(mismatch_fields, start=1):
+        if not isinstance(mismatch_field, str) or not mismatch_field.strip():
+            raise ValueError(f"{option_name} entry #{index} must be non-empty")
+        normalized_mismatch_field = mismatch_field.strip()
+        if normalized_mismatch_field not in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+            allowed_mismatch_fields = ", ".join(PROGRAM_PACK_REPLAY_MISMATCH_FIELDS)
+            raise ValueError(
+                f"{option_name} entry #{index} has unknown mismatch field: {normalized_mismatch_field} (expected one of: {allowed_mismatch_fields})"
+            )
+        if normalized_mismatch_field in seen:
+            raise ValueError(f"duplicate {option_name} selector: {normalized_mismatch_field}")
+        seen.add(normalized_mismatch_field)
+        normalized.append(normalized_mismatch_field)
+    return normalized
+
+
 def _normalize_program_pack_fixture_class_counts(
     fixture_class_counts: str | None,
     *,
@@ -3014,6 +3957,128 @@ def _normalize_program_pack_fixture_class_counts(
     }
 
 
+def _normalize_program_pack_mismatch_field_counts(
+    mismatch_field_counts: str | None,
+    *,
+    option_name: str = "--expected-mismatch-field-counts",
+) -> dict[str, int] | None:
+    if mismatch_field_counts is None:
+        return None
+    if not isinstance(mismatch_field_counts, str) or not mismatch_field_counts.strip():
+        raise ValueError(f"{option_name} must be non-empty")
+
+    normalized: dict[str, int] = {}
+    entries = mismatch_field_counts.split(",")
+    for index, raw_entry in enumerate(entries, start=1):
+        entry = raw_entry.strip()
+        if not entry:
+            raise ValueError(f"{option_name} entry #{index} must be non-empty")
+        mismatch_field, separator, count_text = entry.partition("=")
+        if not separator:
+            raise ValueError(
+                f"{option_name} entry #{index} must use <mismatch-field>=<count>"
+            )
+        normalized_mismatch_field = mismatch_field.strip()
+        if normalized_mismatch_field not in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+            allowed_mismatch_fields = ", ".join(PROGRAM_PACK_REPLAY_MISMATCH_FIELDS)
+            raise ValueError(
+                f"{option_name} entry #{index} has unknown mismatch field: {normalized_mismatch_field} (expected one of: {allowed_mismatch_fields})"
+            )
+        if normalized_mismatch_field in normalized:
+            raise ValueError(f"duplicate {option_name} field: {normalized_mismatch_field}")
+        normalized_count_text = count_text.strip()
+        if not normalized_count_text:
+            raise ValueError(f"{option_name} entry #{index} must include a count")
+        try:
+            normalized_count = int(normalized_count_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"{option_name} count for {normalized_mismatch_field} must be an integer"
+            ) from exc
+        if normalized_count < 0:
+            raise ValueError(
+                f"{option_name} count for {normalized_mismatch_field} must be >= 0"
+            )
+        normalized[normalized_mismatch_field] = normalized_count
+
+    missing_mismatch_fields = [
+        mismatch_field
+        for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+        if mismatch_field not in normalized
+    ]
+    if missing_mismatch_fields:
+        raise ValueError(
+            f"{option_name} must include counts for: {', '.join(missing_mismatch_fields)}"
+        )
+
+    return {
+        mismatch_field: normalized[mismatch_field]
+        for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
+
+
+def _normalize_program_pack_rule_source_status_counts(
+    rule_source_status_counts: str | None,
+    *,
+    option_name: str = "--expected-rule-source-status-counts",
+) -> dict[str, int] | None:
+    if rule_source_status_counts is None:
+        return None
+    if not isinstance(rule_source_status_counts, str) or not rule_source_status_counts.strip():
+        raise ValueError(f"{option_name} must be non-empty")
+
+    normalized: dict[str, int] = {}
+    entries = rule_source_status_counts.split(",")
+    for index, raw_entry in enumerate(entries, start=1):
+        entry = raw_entry.strip()
+        if not entry:
+            raise ValueError(f"{option_name} entry #{index} must be non-empty")
+        rule_source_status, separator, count_text = entry.partition("=")
+        if not separator:
+            raise ValueError(
+                f"{option_name} entry #{index} must use <rule-source-status>=<count>"
+            )
+        normalized_rule_source_status = rule_source_status.strip()
+        if normalized_rule_source_status not in PROGRAM_PACK_RULE_SOURCE_STATUSES:
+            allowed_rule_source_statuses = ", ".join(PROGRAM_PACK_RULE_SOURCE_STATUSES)
+            raise ValueError(
+                f"{option_name} entry #{index} has unknown rule source status: {normalized_rule_source_status} (expected one of: {allowed_rule_source_statuses})"
+            )
+        if normalized_rule_source_status in normalized:
+            raise ValueError(
+                f"duplicate {option_name} rule source status: {normalized_rule_source_status}"
+            )
+        normalized_count_text = count_text.strip()
+        if not normalized_count_text:
+            raise ValueError(f"{option_name} entry #{index} must include a count")
+        try:
+            normalized_count = int(normalized_count_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"{option_name} count for {normalized_rule_source_status} must be an integer"
+            ) from exc
+        if normalized_count < 0:
+            raise ValueError(
+                f"{option_name} count for {normalized_rule_source_status} must be >= 0"
+            )
+        normalized[normalized_rule_source_status] = normalized_count
+
+    missing_rule_source_statuses = [
+        rule_source_status
+        for rule_source_status in PROGRAM_PACK_RULE_SOURCE_STATUSES
+        if rule_source_status not in normalized
+    ]
+    if missing_rule_source_statuses:
+        raise ValueError(
+            f"{option_name} must include counts for: {', '.join(missing_rule_source_statuses)}"
+        )
+
+    return {
+        rule_source_status: normalized[rule_source_status]
+        for rule_source_status in PROGRAM_PACK_RULE_SOURCE_STATUSES
+    }
+
+
 def _replay_program_pack(
     path: str,
     *,
@@ -3021,6 +4086,7 @@ def _replay_program_pack(
     include_fixture_globs: list[str] | None = None,
     exclude_fixture_globs: list[str] | None = None,
     fixture_classes: list[str] | None = None,
+    mismatch_fields: list[str] | None = None,
     strict_profile: dict[str, object] | None = None,
 ) -> dict[str, object]:
     pack_root = Path(path)
@@ -3049,6 +4115,7 @@ def _replay_program_pack(
         exclude_fixture_globs,
     )
     selected_fixture_classes = _normalize_program_pack_fixture_classes(fixture_classes)
+    selected_mismatch_fields = _normalize_program_pack_mismatch_fields(mismatch_fields)
     total_fixture_count = len(fixtures)
     available_fixture_ids = [
         fixture.get("id")
@@ -3166,6 +4233,18 @@ def _replay_program_pack(
         if not isinstance(expected_trace, list):
             raise ValueError(f"pack baseline fixture '{fixture_id}' must contain `expected_trace` list")
 
+        expected_action_plan = fixture.get("expected_action_plan")
+        if expected_action_plan is not None and not isinstance(expected_action_plan, list):
+            raise ValueError(
+                f"pack baseline fixture '{fixture_id}' must contain `expected_action_plan` list when provided"
+            )
+
+        expected_resolved_refs = fixture.get("expected_resolved_refs")
+        if expected_resolved_refs is not None and not isinstance(expected_resolved_refs, dict):
+            raise ValueError(
+                f"pack baseline fixture '{fixture_id}' must contain `expected_resolved_refs` object when provided"
+            )
+
         context = fixture.get("context")
         if context is None:
             context = {}
@@ -3180,12 +4259,28 @@ def _replay_program_pack(
             seed=context.get("seed"),
             calibration=calibration,
             refs=refs,
+            include_action_plan=True,
         )
         actions = envelope.get("actions") if isinstance(envelope.get("actions"), list) else []
         trace = envelope.get("trace") if isinstance(envelope.get("trace"), list) else []
+        action_plan = envelope.get("action_plan") if isinstance(envelope.get("action_plan"), list) else []
+        resolved_refs = (
+            envelope.get("resolved_refs") if isinstance(envelope.get("resolved_refs"), dict) else {}
+        )
         error = envelope.get("error") if isinstance(envelope.get("error"), dict) else None
 
-        matches = error is None and actions == expected_actions and trace == expected_trace
+        mismatch_fields: list[str] = []
+        if error is None:
+            if actions != expected_actions:
+                mismatch_fields.append("actions")
+            if trace != expected_trace:
+                mismatch_fields.append("trace")
+            if expected_action_plan is not None and action_plan != expected_action_plan:
+                mismatch_fields.append("action_plan")
+            if expected_resolved_refs is not None and resolved_refs != expected_resolved_refs:
+                mismatch_fields.append("resolved_refs")
+
+        matches = error is None and not mismatch_fields
         if matches:
             fixture_class = "ok"
         elif error is not None:
@@ -3200,11 +4295,21 @@ def _replay_program_pack(
             "actions": actions,
             "trace": trace,
         }
+        if action_plan:
+            fixture_report["action_plan"] = action_plan
+        if resolved_refs:
+            fixture_report["resolved_refs"] = resolved_refs
         if error is not None:
             fixture_report["error"] = error
+        if mismatch_fields:
+            fixture_report["mismatch_fields"] = mismatch_fields
         if not matches:
             fixture_report["expected_actions"] = expected_actions
             fixture_report["expected_trace"] = expected_trace
+            if expected_action_plan is not None:
+                fixture_report["expected_action_plan"] = expected_action_plan
+            if expected_resolved_refs is not None:
+                fixture_report["expected_resolved_refs"] = expected_resolved_refs
 
         fixture_reports.append(fixture_report)
 
@@ -3228,6 +4333,45 @@ def _replay_program_pack(
             fixture_report
             for fixture_report in fixture_reports
             if fixture_report.get("fixture_class") in selected_fixture_class_set
+        ]
+        final_selected_fixture_ids = [
+            fixture_report["id"]
+            for fixture_report in fixture_reports
+            if isinstance(fixture_report.get("id"), str)
+        ]
+
+    if selected_mismatch_fields is not None:
+        available_mismatch_fields = {
+            mismatch_field
+            for fixture_report in fixture_reports
+            if fixture_report.get("fixture_class") == "expectation_mismatch"
+            for mismatch_field in (
+                fixture_report.get("mismatch_fields")
+                if isinstance(fixture_report.get("mismatch_fields"), list)
+                else []
+            )
+            if isinstance(mismatch_field, str)
+        }
+        unmatched_mismatch_fields = [
+            mismatch_field
+            for mismatch_field in selected_mismatch_fields
+            if mismatch_field not in available_mismatch_fields
+        ]
+        if unmatched_mismatch_fields:
+            unmatched_rendered = ", ".join(unmatched_mismatch_fields)
+            raise ValueError(f"unmatched --mismatch-field selector(s): {unmatched_rendered}")
+        selected_mismatch_field_set = set(selected_mismatch_fields)
+        fixture_reports = [
+            fixture_report
+            for fixture_report in fixture_reports
+            if any(
+                mismatch_field in selected_mismatch_field_set
+                for mismatch_field in (
+                    fixture_report.get("mismatch_fields")
+                    if isinstance(fixture_report.get("mismatch_fields"), list)
+                    else []
+                )
+            )
         ]
         final_selected_fixture_ids = [
             fixture_report["id"]
@@ -3274,10 +4418,44 @@ def _replay_program_pack(
         "expectation_mismatch": mismatch_count - runtime_error_count,
         "runtime_error": runtime_error_count,
     }
+    action_plan_count = sum(
+        len(fixture_report.get("action_plan", []))
+        for fixture_report in fixture_reports
+        if isinstance(fixture_report.get("action_plan"), list)
+    )
+    resolved_ref_count = sum(
+        len(fixture_report.get("resolved_refs", {}))
+        for fixture_report in fixture_reports
+        if isinstance(fixture_report.get("resolved_refs"), dict)
+    )
+    mismatch_field_counts = {
+        field: 0 for field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
+    mismatch_field_ids = {
+        field: [] for field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
+    for fixture_report in fixture_reports:
+        if fixture_report.get("fixture_class") != "expectation_mismatch":
+            continue
+        fixture_id = fixture_report.get("id") if isinstance(fixture_report.get("id"), str) else None
+        reported_fields = (
+            fixture_report.get("mismatch_fields")
+            if isinstance(fixture_report.get("mismatch_fields"), list)
+            else []
+        )
+        for field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+            if field not in reported_fields:
+                continue
+            mismatch_field_counts[field] += 1
+            if fixture_id is not None:
+                mismatch_field_ids[field].append(fixture_id)
     report: dict[str, object] = {
+        "target_path": str(pack_root.resolve()),
         "pack_id": pack_id,
         "program": program_path.name,
+        "program_path": str(program_path.resolve()),
         "baseline": baseline_path.name,
+        "baseline_path": str(baseline_path.resolve()),
         "baseline_shape": baseline_shape,
         "rule_source_status": rule_source_status,
         "fixtures": fixture_reports,
@@ -3289,8 +4467,13 @@ def _replay_program_pack(
             "total_fixture_count": total_fixture_count,
             "fixture_class_counts": fixture_class_counts,
             "fixture_class_ids": fixture_class_ids,
+            "action_plan_count": action_plan_count,
+            "resolved_ref_count": resolved_ref_count,
         },
     }
+    if any(mismatch_field_counts.values()):
+        report["summary"]["mismatch_field_counts"] = mismatch_field_counts
+        report["summary"]["mismatch_field_ids"] = mismatch_field_ids
     if final_selected_fixture_ids is not None:
         report["selected_fixture_ids"] = final_selected_fixture_ids
     if include_fixture_globs is not None:
@@ -3299,6 +4482,8 @@ def _replay_program_pack(
         report["exclude_fixture_globs"] = exclude_fixture_globs
     if selected_fixture_classes is not None:
         report["fixture_class_selectors"] = selected_fixture_classes
+    if selected_mismatch_fields is not None:
+        report["mismatch_field_selectors"] = selected_mismatch_fields
     if rule_source_status != "ok":
         report["program_rules"] = rules
         report["baseline_rules"] = baseline_rules
@@ -3312,6 +4497,138 @@ def _replay_program_pack(
         else "error"
     )
     return _apply_program_pack_replay_strict_profile(report, strict_profile=strict_profile)
+
+
+
+def _filter_program_pack_report(
+    report: dict[str, object],
+    *,
+    fixture_classes: list[str] | None = None,
+    mismatch_fields: list[str] | None = None,
+) -> dict[str, object]:
+    filtered_report = dict(report)
+    fixtures_payload = report.get("fixtures") if isinstance(report.get("fixtures"), list) else []
+    filtered_fixtures = [
+        fixture_report for fixture_report in fixtures_payload if isinstance(fixture_report, dict)
+    ]
+
+    if fixture_classes is not None:
+        selected_fixture_class_set = set(fixture_classes)
+        filtered_fixtures = [
+            fixture_report
+            for fixture_report in filtered_fixtures
+            if fixture_report.get("fixture_class") in selected_fixture_class_set
+        ]
+
+    if mismatch_fields is not None:
+        selected_mismatch_field_set = set(mismatch_fields)
+        filtered_fixtures = [
+            fixture_report
+            for fixture_report in filtered_fixtures
+            if any(
+                mismatch_field in selected_mismatch_field_set
+                for mismatch_field in (
+                    fixture_report.get("mismatch_fields")
+                    if isinstance(fixture_report.get("mismatch_fields"), list)
+                    else []
+                )
+            )
+        ]
+
+    summary_payload = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    total_fixture_count = (
+        summary_payload.get("total_fixture_count")
+        if isinstance(summary_payload.get("total_fixture_count"), int)
+        and not isinstance(summary_payload.get("total_fixture_count"), bool)
+        else len(fixtures_payload)
+    )
+    matched_count = sum(
+        1 for fixture_report in filtered_fixtures if fixture_report.get("status") == "ok"
+    )
+    runtime_error_count = sum(
+        1 for fixture_report in filtered_fixtures if isinstance(fixture_report.get("error"), dict)
+    )
+    mismatch_count = len(filtered_fixtures) - matched_count
+    fixture_class_counts = {
+        fixture_class: 0 for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES
+    }
+    fixture_class_ids = {
+        fixture_class: [] for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES
+    }
+    action_plan_count = 0
+    resolved_ref_count = 0
+    mismatch_field_counts = {
+        mismatch_field: 0 for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
+    mismatch_field_ids = {
+        mismatch_field: [] for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
+
+    for fixture_report in filtered_fixtures:
+        fixture_id = fixture_report.get("id") if isinstance(fixture_report.get("id"), str) else None
+        fixture_class = fixture_report.get("fixture_class")
+        if fixture_class in fixture_class_counts:
+            fixture_class_counts[fixture_class] += 1
+            if fixture_id is not None:
+                fixture_class_ids[fixture_class].append(fixture_id)
+        if isinstance(fixture_report.get("action_plan"), list):
+            action_plan_count += len(fixture_report["action_plan"])
+        if isinstance(fixture_report.get("resolved_refs"), dict):
+            resolved_ref_count += len(fixture_report["resolved_refs"])
+        if fixture_class != "expectation_mismatch":
+            continue
+        reported_fields = (
+            fixture_report.get("mismatch_fields")
+            if isinstance(fixture_report.get("mismatch_fields"), list)
+            else []
+        )
+        for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+            if mismatch_field not in reported_fields:
+                continue
+            mismatch_field_counts[mismatch_field] += 1
+            if fixture_id is not None:
+                mismatch_field_ids[mismatch_field].append(fixture_id)
+
+    filtered_report["fixtures"] = filtered_fixtures
+    filtered_report["summary"] = {
+        "fixture_count": len(filtered_fixtures),
+        "matched_count": matched_count,
+        "mismatch_count": mismatch_count,
+        "runtime_error_count": runtime_error_count,
+        "total_fixture_count": total_fixture_count,
+        "fixture_class_counts": fixture_class_counts,
+        "fixture_class_ids": fixture_class_ids,
+        "action_plan_count": action_plan_count,
+        "resolved_ref_count": resolved_ref_count,
+    }
+    if any(mismatch_field_counts.values()):
+        filtered_report["summary"]["mismatch_field_counts"] = mismatch_field_counts
+        filtered_report["summary"]["mismatch_field_ids"] = mismatch_field_ids
+    filtered_report["selected_fixture_ids"] = [
+        fixture_report["id"]
+        for fixture_report in filtered_fixtures
+        if isinstance(fixture_report.get("id"), str)
+    ]
+    if fixture_classes is not None:
+        filtered_report["fixture_class_selectors"] = fixture_classes
+    else:
+        filtered_report.pop("fixture_class_selectors", None)
+    if mismatch_fields is not None:
+        filtered_report["mismatch_field_selectors"] = mismatch_fields
+    else:
+        filtered_report.pop("mismatch_field_selectors", None)
+
+    rule_source_status = (
+        filtered_report.get("rule_source_status")
+        if isinstance(filtered_report.get("rule_source_status"), str)
+        else "unknown"
+    )
+    filtered_report["status"] = (
+        "ok"
+        if rule_source_status == "ok" and mismatch_count == 0 and runtime_error_count == 0
+        else "error"
+    )
+    return filtered_report
 
 
 
@@ -3402,28 +4719,108 @@ def _replay_program_pack_collection(
     pack_entries: list[tuple[str, Path]],
     *,
     collection_kind: str,
+    target_path: str | None = None,
     total_pack_count: int | None = None,
     include_pack_globs: list[str] | None = None,
     exclude_pack_globs: list[str] | None = None,
+    fixture_classes: list[str] | None = None,
+    mismatch_fields: list[str] | None = None,
     strict_profile: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    selected_fixture_classes = _normalize_program_pack_fixture_classes(fixture_classes)
+    selected_mismatch_fields = _normalize_program_pack_mismatch_fields(mismatch_fields)
+
     pack_reports: list[dict[str, object]] = []
+    available_fixture_classes: set[str] = set()
+    for display_path, pack_root in pack_entries:
+        pack_report = dict(_replay_program_pack(str(pack_root)))
+        pack_report["path"] = display_path
+        pack_reports.append(pack_report)
+
+        fixtures_payload = (
+            pack_report.get("fixtures") if isinstance(pack_report.get("fixtures"), list) else []
+        )
+        for fixture_report in fixtures_payload:
+            if not isinstance(fixture_report, dict):
+                continue
+            fixture_class = fixture_report.get("fixture_class")
+            if isinstance(fixture_class, str):
+                available_fixture_classes.add(fixture_class)
+
+    if selected_fixture_classes is not None:
+        unmatched_fixture_classes = [
+            fixture_class
+            for fixture_class in selected_fixture_classes
+            if fixture_class not in available_fixture_classes
+        ]
+        if unmatched_fixture_classes:
+            unmatched_rendered = ", ".join(unmatched_fixture_classes)
+            raise ValueError(f"unmatched --fixture-class selector(s): {unmatched_rendered}")
+        pack_reports = [
+            _filter_program_pack_report(pack_report, fixture_classes=selected_fixture_classes)
+            for pack_report in pack_reports
+        ]
+        pack_reports = [
+            pack_report
+            for pack_report in pack_reports
+            if isinstance(pack_report.get("summary"), dict)
+            and pack_report["summary"].get("fixture_count", 0) > 0
+        ]
+
+    if selected_mismatch_fields is not None:
+        available_mismatch_fields = {
+            mismatch_field
+            for pack_report in pack_reports
+            for fixture_report in (
+                pack_report.get("fixtures") if isinstance(pack_report.get("fixtures"), list) else []
+            )
+            if isinstance(fixture_report, dict)
+            and fixture_report.get("fixture_class") == "expectation_mismatch"
+            for mismatch_field in (
+                fixture_report.get("mismatch_fields")
+                if isinstance(fixture_report.get("mismatch_fields"), list)
+                else []
+            )
+            if isinstance(mismatch_field, str)
+        }
+        unmatched_mismatch_fields = [
+            mismatch_field
+            for mismatch_field in selected_mismatch_fields
+            if mismatch_field not in available_mismatch_fields
+        ]
+        if unmatched_mismatch_fields:
+            unmatched_rendered = ", ".join(unmatched_mismatch_fields)
+            raise ValueError(f"unmatched --mismatch-field selector(s): {unmatched_rendered}")
+        pack_reports = [
+            _filter_program_pack_report(pack_report, mismatch_fields=selected_mismatch_fields)
+            for pack_report in pack_reports
+        ]
+        pack_reports = [
+            pack_report
+            for pack_report in pack_reports
+            if isinstance(pack_report.get("summary"), dict)
+            and pack_report["summary"].get("fixture_count", 0) > 0
+        ]
+
     ok_pack_count = 0
     error_pack_count = 0
     matched_count = 0
     mismatch_count = 0
     runtime_error_count = 0
     fixture_count = 0
-    rule_source_status_counts = {"ok": 0, "mismatch": 0}
+    rule_source_status_counts = {
+        rule_source_status: 0 for rule_source_status in PROGRAM_PACK_RULE_SOURCE_STATUSES
+    }
     fixture_class_counts = {
         fixture_class: 0 for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES
     }
+    action_plan_count = 0
+    resolved_ref_count = 0
+    mismatch_field_counts = {
+        field: 0 for field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
 
-    for display_path, pack_root in pack_entries:
-        pack_report = dict(_replay_program_pack(str(pack_root)))
-        pack_report["path"] = display_path
-        pack_reports.append(pack_report)
-
+    for pack_report in pack_reports:
         if pack_report.get("status") == "ok":
             ok_pack_count += 1
         else:
@@ -3463,6 +4860,21 @@ def _replay_program_pack_collection(
             class_count = pack_fixture_class_counts.get(fixture_class)
             if isinstance(class_count, int):
                 fixture_class_counts[fixture_class] += class_count
+        pack_action_plan_count = summary_payload.get("action_plan_count")
+        if isinstance(pack_action_plan_count, int) and not isinstance(pack_action_plan_count, bool):
+            action_plan_count += pack_action_plan_count
+        pack_resolved_ref_count = summary_payload.get("resolved_ref_count")
+        if isinstance(pack_resolved_ref_count, int) and not isinstance(pack_resolved_ref_count, bool):
+            resolved_ref_count += pack_resolved_ref_count
+        pack_mismatch_field_counts = (
+            summary_payload.get("mismatch_field_counts")
+            if isinstance(summary_payload.get("mismatch_field_counts"), dict)
+            else {}
+        )
+        for field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+            field_count = pack_mismatch_field_counts.get(field)
+            if isinstance(field_count, int):
+                mismatch_field_counts[field] += field_count
 
     selected_pack_count = len(pack_reports)
     normalized_total_pack_count = total_pack_count
@@ -3471,7 +4883,11 @@ def _replay_program_pack_collection(
     report = {
         "status": "ok" if error_pack_count == 0 else "error",
         "collection_kind": collection_kind,
-        "selected_pack_paths": [display_path for display_path, _ in pack_entries],
+        "selected_pack_paths": [
+            pack_report["path"]
+            for pack_report in pack_reports
+            if isinstance(pack_report.get("path"), str)
+        ],
         "packs": pack_reports,
         "summary": {
             "pack_count": selected_pack_count,
@@ -3484,32 +4900,60 @@ def _replay_program_pack_collection(
             "runtime_error_count": runtime_error_count,
             "rule_source_status_counts": rule_source_status_counts,
             "fixture_class_counts": fixture_class_counts,
+            "action_plan_count": action_plan_count,
+            "resolved_ref_count": resolved_ref_count,
         },
     }
+    if any(mismatch_field_counts.values()):
+        report["summary"]["mismatch_field_counts"] = mismatch_field_counts
+    if target_path is not None:
+        report["target_path"] = target_path
     if include_pack_globs is not None:
         report["include_pack_globs"] = include_pack_globs
     if exclude_pack_globs is not None:
         report["exclude_pack_globs"] = exclude_pack_globs
+    if selected_fixture_classes is not None:
+        report["fixture_class_selectors"] = selected_fixture_classes
+    if selected_mismatch_fields is not None:
+        report["mismatch_field_selectors"] = selected_mismatch_fields
     return _apply_program_pack_collection_strict_profile(report, strict_profile=strict_profile)
 
 
 def _resolve_program_pack_collection_strict_profile(
     *,
     enabled: bool,
+    profile: str | None,
     expected_pack_count: int | None,
     expected_total_pack_count: int | None,
     expected_selected_pack_paths: list[str] | None,
+    expected_rule_source_status_counts: dict[str, int] | None,
+    expected_fixture_class_counts: dict[str, int] | None,
+    expected_action_plan_count: int | None,
+    expected_resolved_refs_count: int | None,
+    expected_mismatch_field_counts: dict[str, int] | None,
 ) -> dict[str, object] | None:
     if not enabled:
         return None
 
     strict_profile: dict[str, object] = {}
+    if profile is not None:
+        strict_profile.update(_resolve_named_program_pack_collection_strict_profile(profile))
     if expected_pack_count is not None:
         strict_profile["expected_pack_count"] = expected_pack_count
     if expected_total_pack_count is not None:
         strict_profile["expected_total_pack_count"] = expected_total_pack_count
     if expected_selected_pack_paths is not None:
         strict_profile["expected_selected_pack_paths"] = expected_selected_pack_paths
+    if expected_rule_source_status_counts is not None:
+        strict_profile["expected_rule_source_status_counts"] = expected_rule_source_status_counts
+    if expected_fixture_class_counts is not None:
+        strict_profile["expected_fixture_class_counts"] = expected_fixture_class_counts
+    if expected_action_plan_count is not None:
+        strict_profile["expected_action_plan_count"] = expected_action_plan_count
+    if expected_resolved_refs_count is not None:
+        strict_profile["expected_resolved_refs_count"] = expected_resolved_refs_count
+    if expected_mismatch_field_counts is not None:
+        strict_profile["expected_mismatch_field_counts"] = expected_mismatch_field_counts
     return strict_profile
 
 
@@ -3526,6 +4970,13 @@ def _resolve_program_pack_replay_strict_profile(
     expected_expectation_mismatch_fixture_ids: list[str] | None,
     expected_runtime_error_fixture_ids: list[str] | None,
     expected_fixture_class_counts: dict[str, int] | None,
+    expected_action_plan_count: int | None,
+    expected_resolved_refs_count: int | None,
+    expected_mismatch_field_counts: dict[str, int] | None,
+    expected_actions_mismatch_fixture_ids: list[str] | None,
+    expected_trace_mismatch_fixture_ids: list[str] | None,
+    expected_action_plan_mismatch_fixture_ids: list[str] | None,
+    expected_resolved_refs_mismatch_fixture_ids: list[str] | None,
     expected_mismatch_count: int | None,
     expected_expectation_mismatch_count: int | None,
     expected_runtime_error_count: int | None,
@@ -3557,6 +5008,24 @@ def _resolve_program_pack_replay_strict_profile(
         strict_profile["expected_runtime_error_fixture_ids"] = expected_runtime_error_fixture_ids
     if expected_fixture_class_counts is not None:
         strict_profile["expected_fixture_class_counts"] = expected_fixture_class_counts
+    if expected_action_plan_count is not None:
+        strict_profile["expected_action_plan_count"] = expected_action_plan_count
+    if expected_resolved_refs_count is not None:
+        strict_profile["expected_resolved_refs_count"] = expected_resolved_refs_count
+    if expected_mismatch_field_counts is not None:
+        strict_profile["expected_mismatch_field_counts"] = expected_mismatch_field_counts
+    if expected_actions_mismatch_fixture_ids is not None:
+        strict_profile["expected_mismatch_field_ids.actions"] = expected_actions_mismatch_fixture_ids
+    if expected_trace_mismatch_fixture_ids is not None:
+        strict_profile["expected_mismatch_field_ids.trace"] = expected_trace_mismatch_fixture_ids
+    if expected_action_plan_mismatch_fixture_ids is not None:
+        strict_profile["expected_mismatch_field_ids.action_plan"] = (
+            expected_action_plan_mismatch_fixture_ids
+        )
+    if expected_resolved_refs_mismatch_fixture_ids is not None:
+        strict_profile["expected_mismatch_field_ids.resolved_refs"] = (
+            expected_resolved_refs_mismatch_fixture_ids
+        )
     if expected_mismatch_count is not None:
         strict_profile["expected_mismatch_count"] = expected_mismatch_count
     if expected_expectation_mismatch_count is not None:
@@ -3623,6 +5092,77 @@ def _program_pack_replay_fixture_class_ids(
         if isinstance(fixture_report, dict)
         and fixture_report.get("fixture_class") == fixture_class
         and isinstance(fixture_report.get("id"), str)
+    ]
+
+
+
+def _program_pack_replay_mismatch_field_counts(
+    report: dict[str, object],
+) -> dict[str, int]:
+    summary_payload = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    mismatch_field_counts = (
+        summary_payload.get("mismatch_field_counts")
+        if isinstance(summary_payload.get("mismatch_field_counts"), dict)
+        else {}
+    )
+    if all(
+        isinstance(mismatch_field_counts.get(mismatch_field), int)
+        and not isinstance(mismatch_field_counts.get(mismatch_field), bool)
+        for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    ):
+        return {
+            mismatch_field: mismatch_field_counts[mismatch_field]
+            for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+        }
+
+    fixtures_payload = report.get("fixtures") if isinstance(report.get("fixtures"), list) else []
+    normalized_counts = {mismatch_field: 0 for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS}
+    for fixture_report in fixtures_payload:
+        if not isinstance(fixture_report, dict):
+            continue
+        if fixture_report.get("fixture_class") != "expectation_mismatch":
+            continue
+        reported_fields = (
+            fixture_report.get("mismatch_fields")
+            if isinstance(fixture_report.get("mismatch_fields"), list)
+            else []
+        )
+        for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+            if mismatch_field in reported_fields:
+                normalized_counts[mismatch_field] += 1
+    return normalized_counts
+
+
+
+def _program_pack_replay_mismatch_field_ids(
+    report: dict[str, object],
+    *,
+    mismatch_field: str,
+) -> list[str]:
+    summary_payload = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    mismatch_field_ids = (
+        summary_payload.get("mismatch_field_ids")
+        if isinstance(summary_payload.get("mismatch_field_ids"), dict)
+        else {}
+    )
+    actual_fixture_ids = mismatch_field_ids.get(mismatch_field)
+    if isinstance(actual_fixture_ids, list) and all(
+        isinstance(fixture_id, str) for fixture_id in actual_fixture_ids
+    ):
+        return actual_fixture_ids
+
+    fixtures_payload = report.get("fixtures") if isinstance(report.get("fixtures"), list) else []
+    return [
+        fixture_report["id"]
+        for fixture_report in fixtures_payload
+        if isinstance(fixture_report, dict)
+        and isinstance(fixture_report.get("id"), str)
+        and fixture_report.get("fixture_class") == "expectation_mismatch"
+        and mismatch_field in (
+            fixture_report.get("mismatch_fields")
+            if isinstance(fixture_report.get("mismatch_fields"), list)
+            else []
+        )
     ]
 
 
@@ -3816,6 +5356,80 @@ def _apply_program_pack_replay_strict_profile(
                     "actual": fixture_class_counts,
                 }
             )
+
+    action_plan_count = (
+        summary_payload.get("action_plan_count")
+        if isinstance(summary_payload.get("action_plan_count"), int)
+        else 0
+    )
+    expected_action_plan_count = strict_profile.get("expected_action_plan_count")
+    if isinstance(expected_action_plan_count, int) and not isinstance(expected_action_plan_count, bool):
+        if action_plan_count != expected_action_plan_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "action_plan_count",
+                    "expected": expected_action_plan_count,
+                    "actual": action_plan_count,
+                }
+            )
+
+    resolved_ref_count = (
+        summary_payload.get("resolved_ref_count")
+        if isinstance(summary_payload.get("resolved_ref_count"), int)
+        else 0
+    )
+    expected_resolved_refs_count = strict_profile.get("expected_resolved_refs_count")
+    if isinstance(expected_resolved_refs_count, int) and not isinstance(expected_resolved_refs_count, bool):
+        if resolved_ref_count != expected_resolved_refs_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "resolved_ref_count",
+                    "expected": expected_resolved_refs_count,
+                    "actual": resolved_ref_count,
+                }
+            )
+
+    mismatch_field_counts = _program_pack_replay_mismatch_field_counts(report)
+    expected_mismatch_field_counts = strict_profile.get("expected_mismatch_field_counts")
+    if isinstance(expected_mismatch_field_counts, dict) and all(
+        mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+        and isinstance(expected_mismatch_field_counts.get(mismatch_field), int)
+        and not isinstance(expected_mismatch_field_counts.get(mismatch_field), bool)
+        for mismatch_field in expected_mismatch_field_counts
+    ):
+        normalized_expected_mismatch_field_counts = {
+            mismatch_field: expected_mismatch_field_counts[mismatch_field]
+            for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+            if mismatch_field in expected_mismatch_field_counts
+        }
+        if mismatch_field_counts != normalized_expected_mismatch_field_counts:
+            strict_profile_mismatches.append(
+                {
+                    "field": "mismatch_field_counts",
+                    "expected": normalized_expected_mismatch_field_counts,
+                    "actual": mismatch_field_counts,
+                }
+            )
+
+    for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+        expected_mismatch_fixture_ids = strict_profile.get(
+            f"expected_mismatch_field_ids.{mismatch_field}"
+        )
+        if isinstance(expected_mismatch_fixture_ids, list) and all(
+            isinstance(fixture_id, str) for fixture_id in expected_mismatch_fixture_ids
+        ):
+            actual_mismatch_fixture_ids = _program_pack_replay_mismatch_field_ids(
+                report,
+                mismatch_field=mismatch_field,
+            )
+            if actual_mismatch_fixture_ids != expected_mismatch_fixture_ids:
+                strict_profile_mismatches.append(
+                    {
+                        "field": f"mismatch_field_ids.{mismatch_field}",
+                        "expected": expected_mismatch_fixture_ids,
+                        "actual": actual_mismatch_fixture_ids,
+                    }
+                )
     expectation_mismatch_count = (
         fixture_class_counts.get("expectation_mismatch")
         if isinstance(fixture_class_counts.get("expectation_mismatch"), int)
@@ -3945,12 +5559,136 @@ def _apply_program_pack_collection_strict_profile(
                 }
             )
 
+    rule_source_status_counts = (
+        summary_payload.get("rule_source_status_counts")
+        if isinstance(summary_payload.get("rule_source_status_counts"), dict)
+        else {}
+    )
+    normalized_rule_source_status_counts = {
+        rule_source_status: (
+            rule_source_status_counts.get(rule_source_status)
+            if isinstance(rule_source_status_counts.get(rule_source_status), int)
+            and not isinstance(rule_source_status_counts.get(rule_source_status), bool)
+            else 0
+        )
+        for rule_source_status in PROGRAM_PACK_RULE_SOURCE_STATUSES
+    }
+    expected_rule_source_status_counts = strict_profile.get(
+        "expected_rule_source_status_counts"
+    )
+    if isinstance(expected_rule_source_status_counts, dict) and all(
+        rule_source_status in PROGRAM_PACK_RULE_SOURCE_STATUSES
+        and isinstance(expected_rule_source_status_counts.get(rule_source_status), int)
+        and not isinstance(expected_rule_source_status_counts.get(rule_source_status), bool)
+        for rule_source_status in expected_rule_source_status_counts
+    ):
+        normalized_expected_rule_source_status_counts = {
+            rule_source_status: expected_rule_source_status_counts[rule_source_status]
+            for rule_source_status in PROGRAM_PACK_RULE_SOURCE_STATUSES
+            if rule_source_status in expected_rule_source_status_counts
+        }
+        if normalized_rule_source_status_counts != normalized_expected_rule_source_status_counts:
+            strict_profile_mismatches.append(
+                {
+                    "field": "rule_source_status_counts",
+                    "expected": normalized_expected_rule_source_status_counts,
+                    "actual": normalized_rule_source_status_counts,
+                }
+            )
+
+    fixture_class_counts = _program_pack_replay_fixture_class_counts(report)
+    expected_fixture_class_counts = strict_profile.get("expected_fixture_class_counts")
+    if isinstance(expected_fixture_class_counts, dict) and all(
+        fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES
+        and isinstance(expected_fixture_class_counts.get(fixture_class), int)
+        and not isinstance(expected_fixture_class_counts.get(fixture_class), bool)
+        for fixture_class in expected_fixture_class_counts
+    ):
+        normalized_expected_fixture_class_counts = {
+            fixture_class: expected_fixture_class_counts[fixture_class]
+            for fixture_class in PROGRAM_PACK_REPLAY_FIXTURE_CLASSES
+            if fixture_class in expected_fixture_class_counts
+        }
+        if fixture_class_counts != normalized_expected_fixture_class_counts:
+            strict_profile_mismatches.append(
+                {
+                    "field": "fixture_class_counts",
+                    "expected": normalized_expected_fixture_class_counts,
+                    "actual": fixture_class_counts,
+                }
+            )
+
+    action_plan_count = (
+        summary_payload.get("action_plan_count")
+        if isinstance(summary_payload.get("action_plan_count"), int)
+        else 0
+    )
+    expected_action_plan_count = strict_profile.get("expected_action_plan_count")
+    if isinstance(expected_action_plan_count, int) and not isinstance(expected_action_plan_count, bool):
+        if action_plan_count != expected_action_plan_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "action_plan_count",
+                    "expected": expected_action_plan_count,
+                    "actual": action_plan_count,
+                }
+            )
+
+    resolved_ref_count = (
+        summary_payload.get("resolved_ref_count")
+        if isinstance(summary_payload.get("resolved_ref_count"), int)
+        else 0
+    )
+    expected_resolved_refs_count = strict_profile.get("expected_resolved_refs_count")
+    if isinstance(expected_resolved_refs_count, int) and not isinstance(expected_resolved_refs_count, bool):
+        if resolved_ref_count != expected_resolved_refs_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "resolved_ref_count",
+                    "expected": expected_resolved_refs_count,
+                    "actual": resolved_ref_count,
+                }
+            )
+
+    mismatch_field_counts = (
+        summary_payload.get("mismatch_field_counts")
+        if isinstance(summary_payload.get("mismatch_field_counts"), dict)
+        else {}
+    )
+    normalized_mismatch_field_counts = {
+        mismatch_field: (
+            mismatch_field_counts.get(mismatch_field)
+            if isinstance(mismatch_field_counts.get(mismatch_field), int)
+            and not isinstance(mismatch_field_counts.get(mismatch_field), bool)
+            else 0
+        )
+        for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+    }
+    expected_mismatch_field_counts = strict_profile.get("expected_mismatch_field_counts")
+    if isinstance(expected_mismatch_field_counts, dict) and all(
+        mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+        and isinstance(expected_mismatch_field_counts.get(mismatch_field), int)
+        and not isinstance(expected_mismatch_field_counts.get(mismatch_field), bool)
+        for mismatch_field in expected_mismatch_field_counts
+    ):
+        normalized_expected_mismatch_field_counts = {
+            mismatch_field: expected_mismatch_field_counts[mismatch_field]
+            for mismatch_field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS
+            if mismatch_field in expected_mismatch_field_counts
+        }
+        if normalized_mismatch_field_counts != normalized_expected_mismatch_field_counts:
+            strict_profile_mismatches.append(
+                {
+                    "field": "mismatch_field_counts",
+                    "expected": normalized_expected_mismatch_field_counts,
+                    "actual": normalized_mismatch_field_counts,
+                }
+            )
+
     replay_status = report.get("status") if isinstance(report.get("status"), str) else "error"
     strict_report = dict(report)
     strict_report["replay_status"] = replay_status
-    strict_report["status"] = (
-        "ok" if replay_status == "ok" and not strict_profile_mismatches else "error"
-    )
+    strict_report["status"] = "error" if strict_profile_mismatches else "ok"
     strict_report["strict_profile"] = strict_profile
     strict_report["strict_profile_mismatches"] = strict_profile_mismatches
     return strict_report
@@ -4218,13 +5956,14 @@ def _extract_eval_program_components(source: str) -> tuple[list[dict[str, object
             continue
 
         if tag in {"rule", "rl"}:
-            rules.append(
-                {
-                    "id": fields.get("id"),
-                    "when": fields.get("when"),
-                    "then": fields.get("then"),
-                }
-            )
+            rule_payload = {
+                "id": fields.get("id"),
+                "when": fields.get("when"),
+                "then": fields.get("then"),
+            }
+            if "priority" in fields:
+                rule_payload["priority"] = fields.get("priority")
+            rules.append(rule_payload)
             continue
 
         if tag == "rf" and "id" in fields and "v" in fields:
@@ -4238,10 +5977,16 @@ def _eval_program_envelope(
     event: object,
     *,
     sidecar_refs: dict[str, str] | None = None,
+    include_action_plan: bool = False,
 ) -> dict[str, object]:
     rules, program_refs = _extract_eval_program_components(source)
     merged_refs = _merge_eval_refs(program_refs=program_refs, sidecar_refs=sidecar_refs)
-    return eval_policies_envelope(event, rules, refs=merged_refs)
+    return eval_policies_envelope(
+        event,
+        rules,
+        refs=merged_refs,
+        include_action_plan=include_action_plan,
+    )
 
 
 def _eval_program_batch_envelope(
@@ -4253,6 +5998,7 @@ def _eval_program_batch_envelope(
     sidecar_refs: dict[str, str] | None = None,
     include_rule_counts: bool = False,
     include_action_kind_counts: bool = False,
+    include_action_plan: bool = False,
     strict_profile: dict[str, object] | None = None,
 ) -> dict[str, object]:
     event_entries = _resolve_eval_batch_event_entries(batch_dir)
@@ -4278,6 +6024,8 @@ def _eval_program_batch_envelope(
     events: list[dict[str, object]] = []
     total_action_count = 0
     total_trace_count = 0
+    total_action_plan_count = 0
+    total_resolved_ref_count = 0
     error_count = 0
     no_action_count = 0
     rule_counts: dict[str, int] = {}
@@ -4290,12 +6038,21 @@ def _eval_program_batch_envelope(
         except json.JSONDecodeError as exc:
             raise ValueError(f"--batch event '{event_name}' must contain valid JSON: {exc}") from exc
 
-        envelope = eval_policies_envelope(event, rules, refs=merged_refs)
+        envelope = eval_policies_envelope(
+            event,
+            rules,
+            refs=merged_refs,
+            include_action_plan=include_action_plan,
+        )
 
         actions = envelope.get("actions")
         action_count = len(actions) if isinstance(actions, list) else 0
         trace = envelope.get("trace")
         trace_count = len(trace) if isinstance(trace, list) else 0
+        action_plan = envelope.get("action_plan")
+        action_plan_count = len(action_plan) if isinstance(action_plan, list) else 0
+        resolved_refs = envelope.get("resolved_refs")
+        resolved_ref_count = len(resolved_refs) if isinstance(resolved_refs, dict) else 0
         has_error = isinstance(envelope.get("error"), dict)
 
         event_entry: dict[str, object] = {
@@ -4303,12 +6060,19 @@ def _eval_program_batch_envelope(
             "actions": actions if isinstance(actions, list) else [],
             "trace": trace if isinstance(trace, list) else [],
         }
+        if include_action_plan:
+            event_entry["action_plan"] = action_plan if isinstance(action_plan, list) else []
+            event_entry["resolved_refs"] = (
+                resolved_refs if isinstance(resolved_refs, dict) else {}
+            )
         if has_error:
             event_entry["error"] = envelope["error"]
 
         events.append(event_entry)
         total_action_count += action_count
         total_trace_count += trace_count
+        total_action_plan_count += action_plan_count
+        total_resolved_ref_count += resolved_ref_count
         if include_rule_counts and isinstance(trace, list):
             for step in trace:
                 if not isinstance(step, dict):
@@ -4336,6 +6100,9 @@ def _eval_program_batch_envelope(
         "action_count": total_action_count,
         "trace_count": total_trace_count,
     }
+    if include_action_plan:
+        summary["action_plan_count"] = total_action_plan_count
+        summary["resolved_ref_count"] = total_resolved_ref_count
     if include_rule_counts:
         summary["rule_counts"] = {
             rule_id: rule_counts[rule_id] for rule_id in sorted(rule_counts)
@@ -4453,6 +6220,38 @@ def _apply_eval_batch_strict_profile(
                 }
             )
 
+    action_plan_count = (
+        summary_payload.get("action_plan_count")
+        if isinstance(summary_payload.get("action_plan_count"), int)
+        else 0
+    )
+    expected_action_plan_count = strict_profile.get("expected_action_plan_count")
+    if isinstance(expected_action_plan_count, int) and not isinstance(expected_action_plan_count, bool):
+        if action_plan_count != expected_action_plan_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "action_plan_count",
+                    "expected": expected_action_plan_count,
+                    "actual": action_plan_count,
+                }
+            )
+
+    resolved_ref_count = (
+        summary_payload.get("resolved_ref_count")
+        if isinstance(summary_payload.get("resolved_ref_count"), int)
+        else 0
+    )
+    expected_resolved_refs_count = strict_profile.get("expected_resolved_refs_count")
+    if isinstance(expected_resolved_refs_count, int) and not isinstance(expected_resolved_refs_count, bool):
+        if resolved_ref_count != expected_resolved_refs_count:
+            strict_profile_mismatches.append(
+                {
+                    "field": "resolved_ref_count",
+                    "expected": expected_resolved_refs_count,
+                    "actual": resolved_ref_count,
+                }
+            )
+
     replay_status = _eval_batch_replay_status(report)
     strict_report = dict(report)
     if isinstance(expected_total_event_names, list) and "total_event_names" not in strict_report:
@@ -4529,7 +6328,7 @@ def _write_batch_output_artifacts(
     include_manifest: bool,
     layout: str,
     run_id: str | None,
-) -> None:
+) -> dict[str, object]:
     events_payload = envelope.get("events")
     summary_payload = envelope.get("summary")
 
@@ -4587,6 +6386,7 @@ def _write_batch_output_artifacts(
         f"{json.dumps(summary_artifact, separators=(',', ':'), ensure_ascii=False)}\n",
         encoding="utf-8",
     )
+    return summary_artifact
 
 
 def _resolve_eval_batch_strict_profile(
@@ -4596,6 +6396,8 @@ def _resolve_eval_batch_strict_profile(
     expected_total_event_count: int | None,
     expected_total_event_names: list[str] | None,
     expected_selected_event_names: list[str] | None,
+    expected_action_plan_count: int | None,
+    expected_resolved_refs_count: int | None,
 ) -> dict[str, object] | None:
     if not enabled:
         return None
@@ -4609,6 +6411,10 @@ def _resolve_eval_batch_strict_profile(
         strict_profile["expected_total_event_names"] = expected_total_event_names
     if expected_selected_event_names is not None:
         strict_profile["expected_selected_event_names"] = expected_selected_event_names
+    if expected_action_plan_count is not None:
+        strict_profile["expected_action_plan_count"] = expected_action_plan_count
+    if expected_resolved_refs_count is not None:
+        strict_profile["expected_resolved_refs_count"] = expected_resolved_refs_count
     return strict_profile
 
 
@@ -4620,6 +6426,8 @@ def _resolve_batch_output_verify_strict_profile(
     expected_layout: str | None,
     expected_run_id_pattern: str | None,
     expected_event_count: int | None,
+    expected_action_plan_count: int | None,
+    expected_resolved_refs_count: int | None,
     expected_verified_count: int | None,
     expected_checked_count: int | None,
     expected_missing_count: int | None,
@@ -4671,6 +6479,12 @@ def _resolve_batch_output_verify_strict_profile(
 
     if expected_event_count is not None:
         strict_profile["expected_event_count"] = expected_event_count
+
+    if expected_action_plan_count is not None:
+        strict_profile["expected_action_plan_count"] = expected_action_plan_count
+
+    if expected_resolved_refs_count is not None:
+        strict_profile["expected_resolved_refs_count"] = expected_resolved_refs_count
 
     if expected_verified_count is not None:
         strict_profile["expected_verified_count"] = expected_verified_count
@@ -4733,6 +6547,10 @@ def _resolve_batch_output_compare_strict_profile(
     expected_missing_baseline_count: int | None,
     expected_missing_candidate_count: int | None,
     expected_metadata_mismatches_count: int | None,
+    expected_baseline_action_plan_count: int | None,
+    expected_candidate_action_plan_count: int | None,
+    expected_baseline_resolved_refs_count: int | None,
+    expected_candidate_resolved_refs_count: int | None,
     expected_selected_baseline_count: int | None,
     expected_selected_candidate_count: int | None,
     expected_selected_baseline_artifacts: list[str] | None,
@@ -4787,6 +6605,14 @@ def _resolve_batch_output_compare_strict_profile(
         strict_profile["expected_missing_candidate_count"] = expected_missing_candidate_count
     if expected_metadata_mismatches_count is not None:
         strict_profile["expected_metadata_mismatches_count"] = expected_metadata_mismatches_count
+    if expected_baseline_action_plan_count is not None:
+        strict_profile["expected_baseline_action_plan_count"] = expected_baseline_action_plan_count
+    if expected_candidate_action_plan_count is not None:
+        strict_profile["expected_candidate_action_plan_count"] = expected_candidate_action_plan_count
+    if expected_baseline_resolved_refs_count is not None:
+        strict_profile["expected_baseline_resolved_refs_count"] = expected_baseline_resolved_refs_count
+    if expected_candidate_resolved_refs_count is not None:
+        strict_profile["expected_candidate_resolved_refs_count"] = expected_candidate_resolved_refs_count
     if expected_selected_baseline_count is not None:
         strict_profile["expected_selected_baseline_count"] = expected_selected_baseline_count
     if expected_selected_candidate_count is not None:
@@ -4912,6 +6738,11 @@ def _verify_batch_output_artifacts(
     selected_manifest_entry_count = sum(
         1 for artifact_relative_path in selected_artifacts if artifact_relative_path in manifest_payload
     )
+    action_plan_count, resolved_ref_count = _selected_batch_artifact_contract_counts(
+        summary_payload,
+        output_root,
+        selected_artifacts=selected_artifacts,
+    )
 
     unexpected_manifest_entries = sorted(
         key for key in manifest_payload.keys() if isinstance(key, str) and key not in event_artifacts
@@ -4957,17 +6788,17 @@ def _verify_batch_output_artifacts(
                     }
                 )
 
+        summary_node = summary_payload.get("summary")
+        if not isinstance(summary_node, dict):
+            summary_node = {}
+
         expected_event_count = strict_profile.get("expected_event_count")
         if isinstance(expected_event_count, int) and not isinstance(expected_event_count, bool):
-            summary_node = summary_payload.get("summary")
-            if isinstance(summary_node, dict):
-                raw_event_count = summary_node.get("event_count")
-                if isinstance(raw_event_count, int) and not isinstance(raw_event_count, bool):
-                    actual_event_count: int | str = raw_event_count
-                elif "event_count" in summary_node:
-                    actual_event_count = "<invalid>"
-                else:
-                    actual_event_count = "<missing>"
+            raw_event_count = summary_node.get("event_count")
+            if isinstance(raw_event_count, int) and not isinstance(raw_event_count, bool):
+                actual_event_count: int | str = raw_event_count
+            elif "event_count" in summary_node:
+                actual_event_count = "<invalid>"
             else:
                 actual_event_count = "<missing>"
 
@@ -4977,6 +6808,46 @@ def _verify_batch_output_artifacts(
                         "field": "summary.event_count",
                         "expected": expected_event_count,
                         "actual": actual_event_count,
+                    }
+                )
+
+        expected_action_plan_count = strict_profile.get("expected_action_plan_count")
+        if isinstance(expected_action_plan_count, int) and not isinstance(
+            expected_action_plan_count, bool
+        ):
+            if isinstance(action_plan_count, int) and not isinstance(action_plan_count, bool):
+                actual_action_plan_count: int | str = action_plan_count
+            elif isinstance(action_plan_count, str):
+                actual_action_plan_count = action_plan_count
+            else:
+                actual_action_plan_count = "<missing>"
+
+            if actual_action_plan_count != expected_action_plan_count:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "summary.action_plan_count",
+                        "expected": expected_action_plan_count,
+                        "actual": actual_action_plan_count,
+                    }
+                )
+
+        expected_resolved_refs_count = strict_profile.get("expected_resolved_refs_count")
+        if isinstance(expected_resolved_refs_count, int) and not isinstance(
+            expected_resolved_refs_count, bool
+        ):
+            if isinstance(resolved_ref_count, int) and not isinstance(resolved_ref_count, bool):
+                actual_resolved_refs_count: int | str = resolved_ref_count
+            elif isinstance(resolved_ref_count, str):
+                actual_resolved_refs_count = resolved_ref_count
+            else:
+                actual_resolved_refs_count = "<missing>"
+
+            if actual_resolved_refs_count != expected_resolved_refs_count:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "summary.resolved_ref_count",
+                        "expected": expected_resolved_refs_count,
+                        "actual": actual_resolved_refs_count,
                     }
                 )
 
@@ -5220,6 +7091,12 @@ def _verify_batch_output_artifacts(
         "selected_manifest_entries_count": selected_manifest_entry_count,
     }
 
+    if isinstance(action_plan_count, int) and not isinstance(action_plan_count, bool):
+        verify_result["action_plan_count"] = action_plan_count
+
+    if isinstance(resolved_ref_count, int) and not isinstance(resolved_ref_count, bool):
+        verify_result["resolved_ref_count"] = resolved_ref_count
+
     if isinstance(strict_profile, dict) and isinstance(
         strict_profile.get("expected_selected_artifacts"), list
     ):
@@ -5247,6 +7124,8 @@ def _render_batch_output_verify_summary(
         unexpected_manifest_entries = verify_summary.get("unexpected_manifest_entries")
         selected_artifacts_count = verify_summary.get("selected_artifacts_count")
         selected_manifest_entries_count = verify_summary.get("selected_manifest_entries_count")
+        action_plan_count = verify_summary.get("action_plan_count")
+        resolved_ref_count = verify_summary.get("resolved_ref_count")
         strict_profile_mismatches = verify_summary.get("strict_profile_mismatches")
 
         rendered = (
@@ -5261,6 +7140,10 @@ def _render_batch_output_verify_summary(
             f"selected_manifest={selected_manifest_entries_count if isinstance(selected_manifest_entries_count, int) and not isinstance(selected_manifest_entries_count, bool) else 0}"
         )
 
+        if isinstance(action_plan_count, int) and not isinstance(action_plan_count, bool):
+            rendered = f"{rendered} plan={action_plan_count}"
+        if isinstance(resolved_ref_count, int) and not isinstance(resolved_ref_count, bool):
+            rendered = f"{rendered} resolved_refs={resolved_ref_count}"
         if isinstance(strict_profile_mismatches, list):
             rendered = f"{rendered} strict_mismatches={len(strict_profile_mismatches)}"
 
@@ -5487,6 +7370,17 @@ def _compare_batch_output_artifacts(
             return "<missing>"
         return summary_payload[field]
 
+    def run_id_value(summary_payload: dict[str, object]) -> str | None:
+        run_payload = summary_payload.get("run")
+        if not isinstance(run_payload, dict):
+            return None
+
+        run_id = run_payload.get("id")
+        if isinstance(run_id, str) and run_id:
+            return run_id
+
+        return None
+
     metadata_mismatches: list[dict[str, object]] = []
     if selected_baseline_artifacts != selected_candidate_artifacts:
         metadata_mismatches.append(
@@ -5555,6 +7449,17 @@ def _compare_batch_output_artifacts(
                     "candidate": candidate_value,
                 }
             )
+
+    baseline_action_plan_count, baseline_resolved_refs_count = _selected_batch_artifact_contract_counts(
+        baseline_summary_payload,
+        baseline_root,
+        selected_artifacts=selected_baseline_artifacts,
+    )
+    candidate_action_plan_count, candidate_resolved_refs_count = _selected_batch_artifact_contract_counts(
+        candidate_summary_payload,
+        candidate_root,
+        selected_artifacts=selected_candidate_artifacts,
+    )
 
     compare_status = "ok"
     if (
@@ -5686,6 +7591,106 @@ def _compare_batch_output_artifacts(
                     }
                 )
 
+        expected_baseline_action_plan_count = strict_profile.get(
+            "expected_baseline_action_plan_count"
+        )
+        if isinstance(expected_baseline_action_plan_count, int) and not isinstance(
+            expected_baseline_action_plan_count, bool
+        ):
+            actual_baseline_action_plan_count: int | str
+            if isinstance(baseline_action_plan_count, int) and not isinstance(
+                baseline_action_plan_count, bool
+            ):
+                actual_baseline_action_plan_count = baseline_action_plan_count
+            elif isinstance(baseline_action_plan_count, str):
+                actual_baseline_action_plan_count = baseline_action_plan_count
+            else:
+                actual_baseline_action_plan_count = "<missing>"
+
+            if actual_baseline_action_plan_count != expected_baseline_action_plan_count:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "baseline.summary.action_plan_count",
+                        "expected": expected_baseline_action_plan_count,
+                        "actual": actual_baseline_action_plan_count,
+                    }
+                )
+
+        expected_candidate_action_plan_count = strict_profile.get(
+            "expected_candidate_action_plan_count"
+        )
+        if isinstance(expected_candidate_action_plan_count, int) and not isinstance(
+            expected_candidate_action_plan_count, bool
+        ):
+            actual_candidate_action_plan_count: int | str
+            if isinstance(candidate_action_plan_count, int) and not isinstance(
+                candidate_action_plan_count, bool
+            ):
+                actual_candidate_action_plan_count = candidate_action_plan_count
+            elif isinstance(candidate_action_plan_count, str):
+                actual_candidate_action_plan_count = candidate_action_plan_count
+            else:
+                actual_candidate_action_plan_count = "<missing>"
+
+            if actual_candidate_action_plan_count != expected_candidate_action_plan_count:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "candidate.summary.action_plan_count",
+                        "expected": expected_candidate_action_plan_count,
+                        "actual": actual_candidate_action_plan_count,
+                    }
+                )
+
+        expected_baseline_resolved_refs_count = strict_profile.get(
+            "expected_baseline_resolved_refs_count"
+        )
+        if isinstance(expected_baseline_resolved_refs_count, int) and not isinstance(
+            expected_baseline_resolved_refs_count, bool
+        ):
+            actual_baseline_resolved_refs_count: int | str
+            if isinstance(baseline_resolved_refs_count, int) and not isinstance(
+                baseline_resolved_refs_count, bool
+            ):
+                actual_baseline_resolved_refs_count = baseline_resolved_refs_count
+            elif isinstance(baseline_resolved_refs_count, str):
+                actual_baseline_resolved_refs_count = baseline_resolved_refs_count
+            else:
+                actual_baseline_resolved_refs_count = "<missing>"
+
+            if actual_baseline_resolved_refs_count != expected_baseline_resolved_refs_count:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "baseline.summary.resolved_ref_count",
+                        "expected": expected_baseline_resolved_refs_count,
+                        "actual": actual_baseline_resolved_refs_count,
+                    }
+                )
+
+        expected_candidate_resolved_refs_count = strict_profile.get(
+            "expected_candidate_resolved_refs_count"
+        )
+        if isinstance(expected_candidate_resolved_refs_count, int) and not isinstance(
+            expected_candidate_resolved_refs_count, bool
+        ):
+            actual_candidate_resolved_refs_count: int | str
+            if isinstance(candidate_resolved_refs_count, int) and not isinstance(
+                candidate_resolved_refs_count, bool
+            ):
+                actual_candidate_resolved_refs_count = candidate_resolved_refs_count
+            elif isinstance(candidate_resolved_refs_count, str):
+                actual_candidate_resolved_refs_count = candidate_resolved_refs_count
+            else:
+                actual_candidate_resolved_refs_count = "<missing>"
+
+            if actual_candidate_resolved_refs_count != expected_candidate_resolved_refs_count:
+                strict_profile_mismatches.append(
+                    {
+                        "field": "candidate.summary.resolved_ref_count",
+                        "expected": expected_candidate_resolved_refs_count,
+                        "actual": actual_candidate_resolved_refs_count,
+                    }
+                )
+
         selected_baseline_count = len(selected_baseline_artifacts)
         expected_selected_baseline_count = strict_profile.get("expected_selected_baseline_count")
         if isinstance(expected_selected_baseline_count, int) and not isinstance(
@@ -5751,6 +7756,14 @@ def _compare_batch_output_artifacts(
     }
     if strict_profile is not None:
         compare_result["compare_status"] = compare_status
+
+    baseline_run_id = run_id_value(baseline_summary_payload)
+    candidate_run_id = run_id_value(candidate_summary_payload)
+    if baseline_run_id is not None:
+        compare_result["baseline_run_id"] = baseline_run_id
+    if candidate_run_id is not None:
+        compare_result["candidate_run_id"] = candidate_run_id
+
     compare_result.update(
         {
             "compared": compared,
@@ -5765,6 +7778,18 @@ def _compare_batch_output_artifacts(
             "selected_candidate_artifacts_count": len(selected_candidate_artifacts),
         }
     )
+    if isinstance(baseline_action_plan_count, int) and not isinstance(baseline_action_plan_count, bool):
+        compare_result["baseline_action_plan_count"] = baseline_action_plan_count
+    if isinstance(candidate_action_plan_count, int) and not isinstance(candidate_action_plan_count, bool):
+        compare_result["candidate_action_plan_count"] = candidate_action_plan_count
+    if isinstance(baseline_resolved_refs_count, int) and not isinstance(
+        baseline_resolved_refs_count, bool
+    ):
+        compare_result["baseline_resolved_ref_count"] = baseline_resolved_refs_count
+    if isinstance(candidate_resolved_refs_count, int) and not isinstance(
+        candidate_resolved_refs_count, bool
+    ):
+        compare_result["candidate_resolved_ref_count"] = candidate_resolved_refs_count
     if isinstance(strict_profile, dict) and isinstance(
         strict_profile.get("expected_selected_baseline_artifacts"), list
     ):
@@ -5795,6 +7820,10 @@ def _render_batch_output_compare_summary(
         metadata_mismatches = compare_summary.get("metadata_mismatches")
         selected_baseline_artifacts_count = compare_summary.get("selected_baseline_artifacts_count")
         selected_candidate_artifacts_count = compare_summary.get("selected_candidate_artifacts_count")
+        baseline_action_plan_count = compare_summary.get("baseline_action_plan_count")
+        candidate_action_plan_count = compare_summary.get("candidate_action_plan_count")
+        baseline_resolved_ref_count = compare_summary.get("baseline_resolved_ref_count")
+        candidate_resolved_ref_count = compare_summary.get("candidate_resolved_ref_count")
         strict_profile_mismatches = compare_summary.get("strict_profile_mismatches")
 
         rendered = f"status={status} "
@@ -5811,11 +7840,157 @@ def _render_batch_output_compare_summary(
             f"selected_baseline={selected_baseline_artifacts_count if isinstance(selected_baseline_artifacts_count, int) and not isinstance(selected_baseline_artifacts_count, bool) else 0} "
             f"selected_candidate={selected_candidate_artifacts_count if isinstance(selected_candidate_artifacts_count, int) and not isinstance(selected_candidate_artifacts_count, bool) else 0}"
         )
+        if isinstance(baseline_action_plan_count, int) and not isinstance(
+            baseline_action_plan_count, bool
+        ):
+            rendered = f"{rendered} baseline_plan={baseline_action_plan_count}"
+        if isinstance(candidate_action_plan_count, int) and not isinstance(
+            candidate_action_plan_count, bool
+        ):
+            rendered = f"{rendered} candidate_plan={candidate_action_plan_count}"
+        if isinstance(baseline_resolved_ref_count, int) and not isinstance(
+            baseline_resolved_ref_count, bool
+        ):
+            rendered = f"{rendered} baseline_resolved_refs={baseline_resolved_ref_count}"
+        if isinstance(candidate_resolved_ref_count, int) and not isinstance(
+            candidate_resolved_ref_count, bool
+        ):
+            rendered = f"{rendered} candidate_resolved_refs={candidate_resolved_ref_count}"
         if isinstance(strict_profile_mismatches, list):
             rendered = f"{rendered} strict_mismatches={len(strict_profile_mismatches)}"
         return rendered
 
     return json.dumps(compare_summary, separators=(",", ":"), ensure_ascii=False)
+
+
+def _build_handoff_primary_payload(*, key: str, details: dict[str, object]) -> dict[str, object]:
+    return {
+        "key": key,
+        "details": details,
+    }
+
+
+def _relative_path_from_bundle_parent(*, bundle_path: str, target_root: str) -> str:
+    target = Path(target_root).resolve()
+    relative = Path(
+        os.path.relpath(
+            target,
+            start=Path(bundle_path).resolve().parent,
+        )
+    ).as_posix()
+
+    if relative == ".":
+        return target.name or relative
+
+    if relative == ".." or relative.startswith("../"):
+        return target.name or relative
+
+    return relative
+
+
+def _bundle_source_label(*, bundle_path: str, source_path: str) -> str:
+    if source_path == "-":
+        return source_path
+    return _relative_path_from_bundle_parent(
+        bundle_path=bundle_path,
+        target_root=source_path,
+    )
+
+
+def _build_handoff_source_payload(
+    *,
+    bundle_path: str,
+    program_path: str | None = None,
+    input_path: str | None = None,
+    batch_path: str | None = None,
+    target_path: str | None = None,
+) -> dict[str, str]:
+    source: dict[str, str] = {}
+    if program_path is not None:
+        source["program"] = _bundle_source_label(
+            bundle_path=bundle_path,
+            source_path=program_path,
+        )
+    if input_path is not None:
+        source["input"] = _bundle_source_label(
+            bundle_path=bundle_path,
+            source_path=input_path,
+        )
+    if batch_path is not None:
+        source["batch"] = _bundle_source_label(
+            bundle_path=bundle_path,
+            source_path=batch_path,
+        )
+    if target_path is not None:
+        source["target"] = _bundle_source_label(
+            bundle_path=bundle_path,
+            source_path=target_path,
+        )
+    return source
+
+
+
+def _build_batch_output_handoff_bundle(
+    *,
+    batch_output_summary: dict[str, object],
+    self_verify_summary: dict[str, object] | None,
+    self_compare_summary: dict[str, object] | None,
+    summary_line: str,
+    exit_policy: str,
+    exit_code: int,
+    bundle_path: str,
+    batch_output_root: str,
+    self_compare_against_root: str | None,
+) -> dict[str, object]:
+    def verdict_payload(
+        summary_payload: dict[str, object] | None,
+        *,
+        render_summary: typing.Callable[[dict[str, object], bool], str],
+    ) -> dict[str, object] | None:
+        if summary_payload is None:
+            return None
+
+        return {
+            "summary_line": render_summary(summary_payload, summary=True),
+            "details": summary_payload,
+        }
+
+    batch_output_root_reference = _relative_path_from_bundle_parent(
+        bundle_path=bundle_path,
+        target_root=batch_output_root,
+    )
+    if (
+        batch_output_summary.get("mode") == "errors-only"
+        and batch_output_summary.get("layout") == "by-status"
+    ):
+        batch_output_root_reference = "triage-by-status"
+
+    bundle = {
+        "kind": "erz.eval.batch_output_handoff_bundle.v1",
+        "surface": "batch_output",
+        "primary": _build_handoff_primary_payload(
+            key="batch_output_summary",
+            details=batch_output_summary,
+        ),
+        "summary_line": summary_line,
+        "exit": {"policy": exit_policy, "code": exit_code},
+        "batch_output_root": batch_output_root_reference,
+        "batch_output_summary": batch_output_summary,
+        "self_verify": verdict_payload(
+            self_verify_summary,
+            render_summary=_render_batch_output_verify_summary,
+        ),
+        "self_compare": verdict_payload(
+            self_compare_summary,
+            render_summary=_render_batch_output_compare_summary,
+        ),
+    }
+    if self_compare_summary is not None and self_compare_against_root is not None:
+        bundle["self_compare_against_root"] = _relative_path_from_bundle_parent(
+            bundle_path=bundle_path,
+            target_root=self_compare_against_root,
+        )
+    return bundle
 
 
 def _is_safe_batch_artifact_relative_path(path_value: str) -> bool:
@@ -5835,6 +8010,92 @@ def _is_sha256_hex(value: str) -> bool:
         return False
     allowed = set("0123456789abcdef")
     return all(ch in allowed for ch in value.lower())
+
+
+def _selected_batch_artifact_semantic_counts(
+    output_root: Path,
+    *,
+    selected_artifacts: list[str],
+) -> tuple[int | str, int | str]:
+    action_plan_count = 0
+    resolved_ref_count = 0
+
+    for artifact_relative_path in selected_artifacts:
+        if not _is_safe_batch_artifact_relative_path(artifact_relative_path):
+            continue
+
+        artifact_path = output_root / artifact_relative_path
+        if not artifact_path.exists() or not artifact_path.is_file():
+            continue
+
+        try:
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return "<invalid>", "<invalid>"
+
+        if not isinstance(artifact_payload, dict):
+            return "<invalid>", "<invalid>"
+
+        action_plan_payload = artifact_payload.get("action_plan")
+        if action_plan_payload is not None and not isinstance(action_plan_payload, list):
+            return "<invalid>", "<invalid>"
+
+        resolved_refs_payload = artifact_payload.get("resolved_refs")
+        if resolved_refs_payload is not None and not isinstance(resolved_refs_payload, dict):
+            return "<invalid>", "<invalid>"
+
+        if isinstance(action_plan_payload, list):
+            action_plan_count += len(action_plan_payload)
+        if isinstance(resolved_refs_payload, dict):
+            resolved_ref_count += len(resolved_refs_payload)
+
+    return action_plan_count, resolved_ref_count
+
+
+def _selected_batch_artifact_contract_counts(
+    summary_payload: dict[str, object],
+    output_root: Path,
+    *,
+    selected_artifacts: list[str],
+) -> tuple[int | str | None, int | str | None]:
+    summary_node = summary_payload.get("summary")
+    if not isinstance(summary_node, dict):
+        summary_node = {}
+
+    action_plan_available = "action_plan_count" in summary_node
+    resolved_refs_available = "resolved_ref_count" in summary_node
+    if not action_plan_available and not resolved_refs_available:
+        return None, None
+
+    raw_action_plan_count = summary_node.get("action_plan_count")
+    if action_plan_available and (
+        not isinstance(raw_action_plan_count, int) or isinstance(raw_action_plan_count, bool)
+    ):
+        action_plan_count: int | str | None = "<invalid>"
+    else:
+        action_plan_count = None
+
+    raw_resolved_ref_count = summary_node.get("resolved_ref_count")
+    if resolved_refs_available and (
+        not isinstance(raw_resolved_ref_count, int) or isinstance(raw_resolved_ref_count, bool)
+    ):
+        resolved_ref_count: int | str | None = "<invalid>"
+    else:
+        resolved_ref_count = None
+
+    if isinstance(action_plan_count, str) or isinstance(resolved_ref_count, str):
+        return action_plan_count, resolved_ref_count
+
+    # These counts are part of the manifest-level batch contract, not a recomputation over the
+    # currently selected artifact files. Triage projections like --batch-output-errors-only can
+    # legitimately drop the success artifact that carried the materialized action plan while the
+    # summary still reports that the underlying batch produced one action-plan step and one
+    # resolved ref. Strict verify/compare should therefore trust the checked-in summary counters
+    # when they are present and well-typed.
+    return (
+        raw_action_plan_count if action_plan_available else None,
+        raw_resolved_ref_count if resolved_refs_available else None,
+    )
 
 
 def _batch_event_status(event_entry: dict[str, object]) -> str:
@@ -5934,6 +8195,107 @@ def _render_eval_output(
     return json.dumps(envelope, separators=(",", ":"), ensure_ascii=False)
 
 
+def _build_batch_output_verify_handoff_bundle(
+    *,
+    summary_payload: dict[str, object],
+    summary_line: str,
+    exit_code: int,
+    bundle_path: str,
+    output_root: str,
+) -> dict[str, object]:
+    return {
+        "kind": "erz.eval.batch_output_verify_handoff_bundle.v1",
+        "surface": "batch_output_verify",
+        "primary": _build_handoff_primary_payload(key="verify", details=summary_payload),
+        "summary_line": summary_line,
+        "exit": {"code": exit_code},
+        "batch_output_root": _relative_path_from_bundle_parent(
+            bundle_path=bundle_path,
+            target_root=output_root,
+        ),
+        "verify": summary_payload,
+    }
+
+
+def _build_batch_output_compare_handoff_bundle(
+    *,
+    summary_payload: dict[str, object],
+    summary_line: str,
+    exit_code: int,
+    bundle_path: str,
+    candidate_root: str,
+    baseline_root: str,
+) -> dict[str, object]:
+    return {
+        "kind": "erz.eval.batch_output_compare_handoff_bundle.v1",
+        "surface": "batch_output_compare",
+        "primary": _build_handoff_primary_payload(key="compare", details=summary_payload),
+        "summary_line": summary_line,
+        "exit": {"code": exit_code},
+        "candidate_root": _relative_path_from_bundle_parent(
+            bundle_path=bundle_path,
+            target_root=candidate_root,
+        ),
+        "baseline_root": _relative_path_from_bundle_parent(
+            bundle_path=bundle_path,
+            target_root=baseline_root,
+        ),
+        "compare": summary_payload,
+    }
+
+
+def _build_eval_handoff_bundle(
+    *,
+    envelope: dict[str, object],
+    summary_line: str,
+    exit_policy: str,
+    exit_code: int,
+    bundle_path: str,
+    program_path: str,
+    input_path: str | None,
+    batch_path: str | None,
+) -> dict[str, object]:
+    return {
+        "kind": "erz.eval.handoff_bundle.v1",
+        "surface": "eval",
+        "source": _build_handoff_source_payload(
+            bundle_path=bundle_path,
+            program_path=program_path,
+            input_path=input_path,
+            batch_path=batch_path,
+        ),
+        "primary": _build_handoff_primary_payload(key="eval", details=envelope),
+        "summary_line": summary_line,
+        "exit": {"policy": exit_policy, "code": exit_code},
+        "eval": envelope,
+    }
+
+
+def _build_program_pack_replay_handoff_bundle(
+    *,
+    envelope: dict[str, object],
+    summary_line: str,
+    exit_code: int,
+    bundle_path: str,
+    target_path: str,
+) -> dict[str, object]:
+    return {
+        "kind": "erz.pack_replay.handoff_bundle.v1",
+        "surface": "pack_replay",
+        "source": _build_handoff_source_payload(
+            bundle_path=bundle_path,
+            target_path=target_path,
+        ),
+        "primary": _build_handoff_primary_payload(
+            key="pack_replay",
+            details=envelope,
+        ),
+        "summary_line": summary_line,
+        "exit": {"code": exit_code},
+        "pack_replay": envelope,
+    }
+
+
 def _resolve_eval_exit_policy(*, strict: bool, exit_policy: str) -> str:
     if strict and exit_policy == "strict-no-actions":
         raise ValueError("--strict cannot be combined with --exit-policy strict-no-actions")
@@ -6006,6 +8368,10 @@ def _with_eval_metadata(
         "actions": envelope.get("actions", []),
         "trace": envelope.get("trace", []),
     }
+    if "action_plan" in envelope:
+        with_meta["action_plan"] = envelope.get("action_plan", [])
+    if "resolved_refs" in envelope:
+        with_meta["resolved_refs"] = envelope.get("resolved_refs", {})
     if "error" in envelope:
         with_meta["error"] = envelope["error"]
     with_meta["meta"] = metadata
@@ -6045,6 +8411,42 @@ def _paths_are_same_location(left: str, right: str) -> bool:
 def _write_batch_output_summary_file(path: str, envelope: dict[str, object]) -> None:
     rendered_envelope = json.dumps(envelope, separators=(",", ":"), ensure_ascii=False)
     Path(path).write_text(f"{rendered_envelope}\n", encoding="utf-8")
+
+
+def _write_handoff_bundle_file(path: str, bundle: dict[str, object]) -> None:
+    rendered_bundle = json.dumps(bundle, separators=(",", ":"), ensure_ascii=False)
+    Path(path).write_text(f"{rendered_bundle}\n", encoding="utf-8")
+
+
+def _write_batch_output_handoff_bundle_file(path: str, bundle: dict[str, object]) -> None:
+    _write_handoff_bundle_file(path, bundle)
+
+
+def _write_eval_handoff_bundle_file(path: str, bundle: dict[str, object]) -> None:
+    _write_handoff_bundle_file(path, bundle)
+
+
+def _render_program_pack_mismatch_field_counts(summary_payload: dict[str, object]) -> str | None:
+    mismatch_field_counts = (
+        summary_payload.get("mismatch_field_counts")
+        if isinstance(summary_payload.get("mismatch_field_counts"), dict)
+        else None
+    )
+    if mismatch_field_counts is None:
+        return None
+
+    rendered_parts: list[str] = []
+    has_non_zero_count = False
+    for field in PROGRAM_PACK_REPLAY_MISMATCH_FIELDS:
+        count = mismatch_field_counts.get(field)
+        if not isinstance(count, int) or isinstance(count, bool):
+            return None
+        if count > 0:
+            has_non_zero_count = True
+        rendered_parts.append(f"{field}:{count}")
+    if not has_non_zero_count:
+        return None
+    return ",".join(rendered_parts)
 
 
 def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: bool) -> str:
@@ -6102,6 +8504,16 @@ def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: 
                 if isinstance(summary_payload.get("fixture_class_counts"), dict)
                 else {}
             )
+            action_plan_count = (
+                summary_payload.get("action_plan_count")
+                if isinstance(summary_payload.get("action_plan_count"), int)
+                else 0
+            )
+            resolved_ref_count = (
+                summary_payload.get("resolved_ref_count")
+                if isinstance(summary_payload.get("resolved_ref_count"), int)
+                else 0
+            )
             ok_rule_source_count = (
                 rule_source_status_counts.get("ok")
                 if isinstance(rule_source_status_counts.get("ok"), int)
@@ -6134,6 +8546,7 @@ def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: 
                 else None
             )
             strict_profile_mismatches = envelope.get("strict_profile_mismatches")
+            rendered_mismatch_fields = _render_program_pack_mismatch_field_counts(summary_payload)
             overall_line = f"status={status} "
             if isinstance(replay_status, str):
                 overall_line = f"{overall_line}replay_status={replay_status} "
@@ -6146,8 +8559,11 @@ def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: 
                 f"mismatches={mismatch_count} runtime_errors={runtime_error_count} "
                 f"rule_sources=ok:{ok_rule_source_count},mismatch:{mismatch_rule_source_count} "
                 f"fixture_classes=ok:{ok_fixture_count},expectation_mismatch:{expectation_mismatch_fixture_count},"
-                f"runtime_error:{runtime_error_fixture_class_count}"
+                f"runtime_error:{runtime_error_fixture_class_count} "
+                f"plan={action_plan_count} resolved_refs={resolved_ref_count}"
             )
+            if isinstance(rendered_mismatch_fields, str):
+                overall_line = f"{overall_line} mismatch_fields={rendered_mismatch_fields}"
             if isinstance(strict_profile_mismatches, list):
                 overall_line = f"{overall_line} strict_mismatches={len(strict_profile_mismatches)}"
             lines = [overall_line]
@@ -6192,6 +8608,16 @@ def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: 
             if isinstance(summary_payload.get("fixture_class_counts"), dict)
             else {}
         )
+        action_plan_count = (
+            summary_payload.get("action_plan_count")
+            if isinstance(summary_payload.get("action_plan_count"), int)
+            else 0
+        )
+        resolved_ref_count = (
+            summary_payload.get("resolved_ref_count")
+            if isinstance(summary_payload.get("resolved_ref_count"), int)
+            else 0
+        )
         ok_fixture_count = (
             fixture_class_counts.get("ok")
             if isinstance(fixture_class_counts.get("ok"), int)
@@ -6220,6 +8646,7 @@ def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: 
             else None
         )
         strict_profile_mismatches = envelope.get("strict_profile_mismatches")
+        rendered_mismatch_fields = _render_program_pack_mismatch_field_counts(summary_payload)
         fixture_scope = (
             f"{fixture_count}/{total_fixture_count}"
             if total_fixture_count != fixture_count
@@ -6235,8 +8662,11 @@ def _render_program_pack_replay_output(envelope: dict[str, object], *, summary: 
         rendered = (
             f"{rendered}pack={pack_id} fixtures={fixture_scope} matched={matched_count} "
             f"mismatches={mismatch_count} runtime_errors={runtime_error_count} "
-            f"rule_source={rule_source_status} fixture_classes={fixture_classes}"
+            f"rule_source={rule_source_status} fixture_classes={fixture_classes} "
+            f"plan={action_plan_count} resolved_refs={resolved_ref_count}"
         )
+        if isinstance(rendered_mismatch_fields, str):
+            rendered = f"{rendered} mismatch_fields={rendered_mismatch_fields}"
         if isinstance(strict_profile_mismatches, list):
             rendered = f"{rendered} strict_mismatches={len(strict_profile_mismatches)}"
         return rendered
@@ -6261,6 +8691,12 @@ def _render_eval_summary(envelope: dict[str, object]) -> str:
         )
         action_count = summary.get("action_count") if isinstance(summary.get("action_count"), int) else 0
         trace_count = summary.get("trace_count") if isinstance(summary.get("trace_count"), int) else 0
+        action_plan_count = (
+            summary.get("action_plan_count") if isinstance(summary.get("action_plan_count"), int) else None
+        )
+        resolved_ref_count = (
+            summary.get("resolved_ref_count") if isinstance(summary.get("resolved_ref_count"), int) else None
+        )
 
         replay_status = envelope.get("replay_status") if isinstance(envelope.get("replay_status"), str) else None
         status = envelope.get("status") if isinstance(envelope.get("status"), str) else _eval_batch_replay_status(envelope)
@@ -6275,6 +8711,10 @@ def _render_eval_summary(envelope: dict[str, object]) -> str:
                 f"events={event_count} errors={error_count} "
                 f"no_actions={no_action_count} actions={action_count} trace={trace_count}"
             )
+        if action_plan_count is not None:
+            rendered = f"{rendered} plan={action_plan_count}"
+        if resolved_ref_count is not None:
+            rendered = f"{rendered} resolved_refs={resolved_ref_count}"
         if total_event_count != event_count:
             rendered = f"{rendered} total_events={total_event_count}"
         strict_profile_mismatches = envelope.get("strict_profile_mismatches")
@@ -6287,17 +8727,31 @@ def _render_eval_summary(envelope: dict[str, object]) -> str:
 
     action_count = len(actions) if isinstance(actions, list) else 0
     trace_count = len(trace) if isinstance(trace, list) else 0
+    action_plan = envelope.get("action_plan")
+    action_plan_count = len(action_plan) if isinstance(action_plan, list) else None
+    resolved_refs = envelope.get("resolved_refs")
+    resolved_ref_count = len(resolved_refs) if isinstance(resolved_refs, dict) else None
 
     error = envelope.get("error")
     if isinstance(error, dict):
         code = error.get("code", "ERZ_RUNTIME_ERROR")
         stage = error.get("stage", "runtime")
-        return (
+        rendered = (
             f"status=error code={code} stage={stage} "
             f"actions={action_count} trace={trace_count}"
         )
+        if action_plan_count is not None:
+            rendered = f"{rendered} plan={action_plan_count}"
+        if resolved_ref_count is not None:
+            rendered = f"{rendered} resolved_refs={resolved_ref_count}"
+        return rendered
 
-    return f"status=ok actions={action_count} trace={trace_count}"
+    rendered = f"status=ok actions={action_count} trace={trace_count}"
+    if action_plan_count is not None:
+        rendered = f"{rendered} plan={action_plan_count}"
+    if resolved_ref_count is not None:
+        rendered = f"{rendered} resolved_refs={resolved_ref_count}"
+    return rendered
 
 
 def _read_source(path: str) -> str:

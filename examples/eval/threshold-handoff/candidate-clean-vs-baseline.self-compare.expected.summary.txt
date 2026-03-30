@@ -1,1 +1,0 @@
-status=ok compared=3 matched=3 changed=0 baseline_only=0 candidate_only=0 missing_baseline=0 missing_candidate=0 metadata_mismatches=0 selected_baseline=3 selected_candidate=3

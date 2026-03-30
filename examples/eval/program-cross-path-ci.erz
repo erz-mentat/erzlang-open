@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_cross_field_casefold_contract",when:["event_type_present","event_type_equals:normalize","payload_path_equals_path_ci:routing.team=routing.owner","payload_path_not_equals_path_ci:routing.team=routing.backup_team"],then:[{kind:"route",params:{target:"cross_path_ci_lane",reason:"cross_field_payload_match_ci"}}]}

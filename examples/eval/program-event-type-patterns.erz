@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_event_type_patterns",when:["event_type_present","event_type_startswith_ci:ops.","event_type_contains_ci:incident_candidate","event_type_not_contains_ci:heartbeat","event_type_not_endswith_ci:.page","event_type_matches_ci:^ops\\.[a-z_]+\\.(alert|page)$","payload_has:severity"],then:[{kind:"route",params:{target:"event_type_pattern_lane",reason:"event_type_pattern_match"}}]}

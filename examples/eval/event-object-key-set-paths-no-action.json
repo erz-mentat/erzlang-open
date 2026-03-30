@@ -1,0 +1,1 @@
+{"type":"normalize","payload":{"enrichment":{"labels":{"legacy":true,"team":"ops"}},"headers":{"X-Blocked":"1","X-Env":"prod"},"policy":{"required_labels":["severity","team"],"forbidden_labels":["legacy","deprecated"],"required_headers":["x-env","x-trace-id","x-alt-route"],"forbidden_headers":["x-blocked","x-legacy"]}}}

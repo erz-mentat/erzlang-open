@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_allowed_event_type_set",when:["event_type_present","event_type_in:alert,incident_candidate","event_type_not_in:heartbeat,debug","payload_has:severity"],then:[{kind:"route",params:{target:"event_type_set_lane",reason:"event_type_set_match"}}]}

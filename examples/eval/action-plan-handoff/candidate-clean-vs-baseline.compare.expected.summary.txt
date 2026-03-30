@@ -1,0 +1,1 @@
+status=ok compare_status=ok compared=3 matched=3 changed=0 baseline_only=0 candidate_only=0 missing_baseline=0 missing_candidate=0 metadata_mismatches=0 selected_baseline=3 selected_candidate=3 baseline_plan=1 candidate_plan=1 baseline_resolved_refs=1 candidate_resolved_refs=1 strict_mismatches=0

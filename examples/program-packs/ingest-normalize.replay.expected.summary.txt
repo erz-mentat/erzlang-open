@@ -1,0 +1,1 @@
+status=ok replay_status=ok pack=ingest-normalize fixtures=2 matched=2 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:2,expectation_mismatch:0,runtime_error:0 plan=2 resolved_refs=1 strict_mismatches=0

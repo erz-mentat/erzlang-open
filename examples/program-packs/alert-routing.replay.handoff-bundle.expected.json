@@ -1,0 +1,388 @@
+{
+  "kind": "erz.pack_replay.handoff_bundle.v1",
+  "surface": "pack_replay",
+  "source": {
+    "target": "alert-routing"
+  },
+  "primary": {
+    "key": "pack_replay",
+    "details": {
+      "target_path": "alert-routing",
+      "pack_id": "sprint-7-pack-03-alert-routing",
+      "program": "alert-routing.erz",
+      "program_path": "alert-routing/alert-routing.erz",
+      "baseline": "alert-routing.baseline.json",
+      "baseline_path": "alert-routing/alert-routing.baseline.json",
+      "baseline_shape": "fixture-matrix",
+      "rule_source_status": "ok",
+      "fixtures": [
+        {
+          "id": "critical_high_conf",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+high_confidence",
+                "target": "oncall_primary",
+                "via": "pager"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r01_page_primary",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_gte:measurements.severity=0.9",
+                "payload_path_gte:measurements.confidence=0.85"
+              ],
+              "score": 1.0,
+              "calibrated_probability": 0.98,
+              "timestamp": "2026-02-25T17:00:00Z",
+              "seed": "fixture-critical-high"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+high_confidence",
+                "target": "oncall_primary",
+                "via": "pager"
+              }
+            }
+          ]
+        },
+        {
+          "id": "critical_low_conf",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+low_confidence",
+                "target": "safety_triage",
+                "via": "human_review"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r02_manual_review",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_gte:measurements.severity=0.9",
+                "payload_path_lt:measurements.confidence=0.85"
+              ],
+              "score": 1.0,
+              "calibrated_probability": 0.76,
+              "timestamp": "2026-02-25T17:05:00Z",
+              "seed": "fixture-critical-low"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "route",
+              "params": {
+                "priority": "p1",
+                "reason": "critical+low_confidence",
+                "target": "safety_triage",
+                "via": "human_review"
+              }
+            }
+          ]
+        },
+        {
+          "id": "warning_high_conf",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "route",
+              "params": {
+                "priority": "p2",
+                "reason": "warning+high_confidence",
+                "target": "ops_digest",
+                "via": "queue"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r03_ops_digest",
+              "matched_clauses": [
+                "event_type_present",
+                "event_type_equals:alert",
+                "payload_path_exists:alert.id",
+                "payload_path_gte:measurements.severity=0.6",
+                "payload_path_lt:measurements.severity=0.9",
+                "payload_path_gte:measurements.confidence=0.85"
+              ],
+              "score": 1.0,
+              "calibrated_probability": 0.88,
+              "timestamp": "2026-02-25T17:10:00Z",
+              "seed": "fixture-warning-high"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "route",
+              "params": {
+                "priority": "p2",
+                "reason": "warning+high_confidence",
+                "target": "ops_digest",
+                "via": "queue"
+              }
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "fixture_count": 3,
+        "matched_count": 3,
+        "mismatch_count": 0,
+        "runtime_error_count": 0,
+        "total_fixture_count": 3,
+        "fixture_class_counts": {
+          "ok": 3,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "fixture_class_ids": {
+          "ok": [
+            "critical_high_conf",
+            "critical_low_conf",
+            "warning_high_conf"
+          ],
+          "expectation_mismatch": [],
+          "runtime_error": []
+        },
+        "action_plan_count": 3,
+        "resolved_ref_count": 0
+      },
+      "status": "ok",
+      "replay_status": "ok",
+      "strict_profile": {
+        "expected_pack_id": "sprint-7-pack-03-alert-routing",
+        "expected_baseline_shape": "fixture-matrix",
+        "expected_total_fixture_count": 3,
+        "expected_fixture_class_counts": {
+          "ok": 3,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "expected_action_plan_count": 3,
+        "expected_resolved_refs_count": 0,
+        "expected_mismatch_count": 0,
+        "expected_expectation_mismatch_count": 0,
+        "expected_runtime_error_count": 0,
+        "expected_rule_source_status": "ok"
+      },
+      "strict_profile_mismatches": []
+    }
+  },
+  "summary_line": "status=ok replay_status=ok pack=sprint-7-pack-03-alert-routing fixtures=3 matched=3 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:3,expectation_mismatch:0,runtime_error:0 plan=3 resolved_refs=0 strict_mismatches=0",
+  "exit": {
+    "code": 0
+  },
+  "pack_replay": {
+    "target_path": "alert-routing",
+    "pack_id": "sprint-7-pack-03-alert-routing",
+    "program": "alert-routing.erz",
+    "program_path": "alert-routing/alert-routing.erz",
+    "baseline": "alert-routing.baseline.json",
+    "baseline_path": "alert-routing/alert-routing.baseline.json",
+    "baseline_shape": "fixture-matrix",
+    "rule_source_status": "ok",
+    "fixtures": [
+      {
+        "id": "critical_high_conf",
+        "status": "ok",
+        "fixture_class": "ok",
+        "actions": [
+          {
+            "kind": "route",
+            "params": {
+              "priority": "p1",
+              "reason": "critical+high_confidence",
+              "target": "oncall_primary",
+              "via": "pager"
+            }
+          }
+        ],
+        "trace": [
+          {
+            "rule_id": "r01_page_primary",
+            "matched_clauses": [
+              "event_type_present",
+              "event_type_equals:alert",
+              "payload_path_exists:alert.id",
+              "payload_path_gte:measurements.severity=0.9",
+              "payload_path_gte:measurements.confidence=0.85"
+            ],
+            "score": 1.0,
+            "calibrated_probability": 0.98,
+            "timestamp": "2026-02-25T17:00:00Z",
+            "seed": "fixture-critical-high"
+          }
+        ],
+        "action_plan": [
+          {
+            "step": 1,
+            "kind": "route",
+            "params": {
+              "priority": "p1",
+              "reason": "critical+high_confidence",
+              "target": "oncall_primary",
+              "via": "pager"
+            }
+          }
+        ]
+      },
+      {
+        "id": "critical_low_conf",
+        "status": "ok",
+        "fixture_class": "ok",
+        "actions": [
+          {
+            "kind": "route",
+            "params": {
+              "priority": "p1",
+              "reason": "critical+low_confidence",
+              "target": "safety_triage",
+              "via": "human_review"
+            }
+          }
+        ],
+        "trace": [
+          {
+            "rule_id": "r02_manual_review",
+            "matched_clauses": [
+              "event_type_present",
+              "event_type_equals:alert",
+              "payload_path_exists:alert.id",
+              "payload_path_gte:measurements.severity=0.9",
+              "payload_path_lt:measurements.confidence=0.85"
+            ],
+            "score": 1.0,
+            "calibrated_probability": 0.76,
+            "timestamp": "2026-02-25T17:05:00Z",
+            "seed": "fixture-critical-low"
+          }
+        ],
+        "action_plan": [
+          {
+            "step": 1,
+            "kind": "route",
+            "params": {
+              "priority": "p1",
+              "reason": "critical+low_confidence",
+              "target": "safety_triage",
+              "via": "human_review"
+            }
+          }
+        ]
+      },
+      {
+        "id": "warning_high_conf",
+        "status": "ok",
+        "fixture_class": "ok",
+        "actions": [
+          {
+            "kind": "route",
+            "params": {
+              "priority": "p2",
+              "reason": "warning+high_confidence",
+              "target": "ops_digest",
+              "via": "queue"
+            }
+          }
+        ],
+        "trace": [
+          {
+            "rule_id": "r03_ops_digest",
+            "matched_clauses": [
+              "event_type_present",
+              "event_type_equals:alert",
+              "payload_path_exists:alert.id",
+              "payload_path_gte:measurements.severity=0.6",
+              "payload_path_lt:measurements.severity=0.9",
+              "payload_path_gte:measurements.confidence=0.85"
+            ],
+            "score": 1.0,
+            "calibrated_probability": 0.88,
+            "timestamp": "2026-02-25T17:10:00Z",
+            "seed": "fixture-warning-high"
+          }
+        ],
+        "action_plan": [
+          {
+            "step": 1,
+            "kind": "route",
+            "params": {
+              "priority": "p2",
+              "reason": "warning+high_confidence",
+              "target": "ops_digest",
+              "via": "queue"
+            }
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "fixture_count": 3,
+      "matched_count": 3,
+      "mismatch_count": 0,
+      "runtime_error_count": 0,
+      "total_fixture_count": 3,
+      "fixture_class_counts": {
+        "ok": 3,
+        "expectation_mismatch": 0,
+        "runtime_error": 0
+      },
+      "fixture_class_ids": {
+        "ok": [
+          "critical_high_conf",
+          "critical_low_conf",
+          "warning_high_conf"
+        ],
+        "expectation_mismatch": [],
+        "runtime_error": []
+      },
+      "action_plan_count": 3,
+      "resolved_ref_count": 0
+    },
+    "status": "ok",
+    "replay_status": "ok",
+    "strict_profile": {
+      "expected_pack_id": "sprint-7-pack-03-alert-routing",
+      "expected_baseline_shape": "fixture-matrix",
+      "expected_total_fixture_count": 3,
+      "expected_fixture_class_counts": {
+        "ok": 3,
+        "expectation_mismatch": 0,
+        "runtime_error": 0
+      },
+      "expected_action_plan_count": 3,
+      "expected_resolved_refs_count": 0,
+      "expected_mismatch_count": 0,
+      "expected_expectation_mismatch_count": 0,
+      "expected_runtime_error_count": 0,
+      "expected_rule_source_status": "ok"
+    },
+    "strict_profile_mismatches": []
+  }
+}

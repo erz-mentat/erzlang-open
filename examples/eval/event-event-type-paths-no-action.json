@@ -1,0 +1,33 @@
+{
+  "type": "Ops.Incident_Candidate.Alert",
+  "payload": {
+    "blocked": {
+      "blocked_types": ["Ops.Heartbeat.Alert", "Audit.Alert"],
+      "blocked_types_ci": ["ops.heartbeat.alert", "audit.alert"],
+      "exact_type": "Ops.Heartbeat.Alert",
+      "exact_type_ci": "ops.heartbeat.alert",
+      "fragment": "Heartbeat",
+      "fragment_ci": "heartbeat",
+      "prefix": "Audit.",
+      "prefix_ci": "audit.",
+      "regex": "^Ops\\.Heartbeat\\..*$",
+      "regex_ci": "^ops\\.heartbeat\\..*$",
+      "suffix": ".Page",
+      "suffix_ci": ".page"
+    },
+    "policy": {
+      "allowed_types": ["Ops.Incident_Candidate.Alert", "Ops.Incident_Candidate.Page"],
+      "allowed_types_ci": ["ops.incident_candidate.alert", "ops.incident_candidate.page"],
+      "expected_type": "Ops.Incident_Candidate.Alert",
+      "expected_type_ci": "ops.incident_candidate.alert",
+      "fragment": "Incident_Candidate",
+      "fragment_ci": "incident_candidate",
+      "prefix": "Audit.",
+      "prefix_ci": "ops.",
+      "regex": "^Ops\\.[A-Za-z_]+\\.(Alert|Page)$",
+      "regex_ci": "^ops\\.[a-z_]+\\.(alert|page)$",
+      "suffix": ".Alert",
+      "suffix_ci": ".alert"
+    }
+  }
+}

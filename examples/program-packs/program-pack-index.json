@@ -1,0 +1,14 @@
+{
+  "packs": [
+    {
+      "path": "ingest-normalize"
+    },
+    "alert-routing",
+    {
+      "path": "dedup-cluster"
+    },
+    {
+      "path": "refs-handoff"
+    }
+  ]
+}

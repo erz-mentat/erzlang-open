@@ -1,0 +1,1 @@
+{"actions":[{"kind":"route","params":{"reason":"event_type_string_match","target":"event_type_string_lane"}}],"trace":[{"rule_id":"route_namespaced_event_type","matched_clauses":["event_type_present","event_type_startswith:ops.","event_type_contains:incident_candidate","event_type_endswith:.alert","payload_has:severity"],"score":1.0}]}

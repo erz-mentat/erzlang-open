@@ -1,0 +1,266 @@
+{
+  "kind": "erz.pack_replay.handoff_bundle.v1",
+  "surface": "pack_replay",
+  "source": {
+    "target": "ingest-normalize"
+  },
+  "primary": {
+    "key": "pack_replay",
+    "details": {
+      "target_path": "ingest-normalize",
+      "pack_id": "ingest-normalize",
+      "program": "program.erz",
+      "program_path": "ingest-normalize/program.erz",
+      "baseline": "baseline.json",
+      "baseline_path": "ingest-normalize/baseline.json",
+      "baseline_shape": "inline-statements",
+      "rule_source_status": "ok",
+      "fixtures": [
+        {
+          "id": "event-01-ingest",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "queue_normalize",
+              "params": {
+                "pipeline": "nlp-v1"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_ingest_to_normalize",
+              "matched_clauses": [
+                "event_type_equals:ingest",
+                "payload_path_contains:text=Unfall"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-03-01T10:00:00Z",
+              "seed": "seed-pack-1"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "queue_normalize",
+              "params": {
+                "pipeline": "nlp-v1"
+              }
+            }
+          ]
+        },
+        {
+          "id": "event-02-normalize",
+          "status": "ok",
+          "fixture_class": "ok",
+          "actions": [
+            {
+              "kind": "notify",
+              "params": {
+                "channel": "ops_dispatch",
+                "template_ref": "@tpl_norm_ready"
+              }
+            }
+          ],
+          "trace": [
+            {
+              "rule_id": "r_normalize_publish",
+              "matched_clauses": [
+                "event_type_equals:normalize",
+                "payload_path_startswith:normalized_text=Verkehrsunfall",
+                "payload_path_len_gte:entities=1"
+              ],
+              "score": 1.0,
+              "timestamp": "2026-03-01T10:00:02Z"
+            }
+          ],
+          "action_plan": [
+            {
+              "step": 1,
+              "kind": "notify",
+              "params": {
+                "channel": "ops_dispatch",
+                "template": "Normalisierung abgeschlossen: Einsatzlage aktualisieren."
+              }
+            }
+          ],
+          "resolved_refs": {
+            "tpl_norm_ready": "Normalisierung abgeschlossen: Einsatzlage aktualisieren."
+          }
+        }
+      ],
+      "summary": {
+        "fixture_count": 2,
+        "matched_count": 2,
+        "mismatch_count": 0,
+        "runtime_error_count": 0,
+        "total_fixture_count": 2,
+        "fixture_class_counts": {
+          "ok": 2,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "fixture_class_ids": {
+          "ok": [
+            "event-01-ingest",
+            "event-02-normalize"
+          ],
+          "expectation_mismatch": [],
+          "runtime_error": []
+        },
+        "action_plan_count": 2,
+        "resolved_ref_count": 1
+      },
+      "status": "ok",
+      "replay_status": "ok",
+      "strict_profile": {
+        "expected_pack_id": "ingest-normalize",
+        "expected_baseline_shape": "inline-statements",
+        "expected_total_fixture_count": 2,
+        "expected_fixture_class_counts": {
+          "ok": 2,
+          "expectation_mismatch": 0,
+          "runtime_error": 0
+        },
+        "expected_action_plan_count": 2,
+        "expected_resolved_refs_count": 1,
+        "expected_mismatch_count": 0,
+        "expected_expectation_mismatch_count": 0,
+        "expected_runtime_error_count": 0,
+        "expected_rule_source_status": "ok"
+      },
+      "strict_profile_mismatches": []
+    }
+  },
+  "summary_line": "status=ok replay_status=ok pack=ingest-normalize fixtures=2 matched=2 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:2,expectation_mismatch:0,runtime_error:0 plan=2 resolved_refs=1 strict_mismatches=0",
+  "exit": {
+    "code": 0
+  },
+  "pack_replay": {
+    "target_path": "ingest-normalize",
+    "pack_id": "ingest-normalize",
+    "program": "program.erz",
+    "program_path": "ingest-normalize/program.erz",
+    "baseline": "baseline.json",
+    "baseline_path": "ingest-normalize/baseline.json",
+    "baseline_shape": "inline-statements",
+    "rule_source_status": "ok",
+    "fixtures": [
+      {
+        "id": "event-01-ingest",
+        "status": "ok",
+        "fixture_class": "ok",
+        "actions": [
+          {
+            "kind": "queue_normalize",
+            "params": {
+              "pipeline": "nlp-v1"
+            }
+          }
+        ],
+        "trace": [
+          {
+            "rule_id": "r_ingest_to_normalize",
+            "matched_clauses": [
+              "event_type_equals:ingest",
+              "payload_path_contains:text=Unfall"
+            ],
+            "score": 1.0,
+            "timestamp": "2026-03-01T10:00:00Z",
+            "seed": "seed-pack-1"
+          }
+        ],
+        "action_plan": [
+          {
+            "step": 1,
+            "kind": "queue_normalize",
+            "params": {
+              "pipeline": "nlp-v1"
+            }
+          }
+        ]
+      },
+      {
+        "id": "event-02-normalize",
+        "status": "ok",
+        "fixture_class": "ok",
+        "actions": [
+          {
+            "kind": "notify",
+            "params": {
+              "channel": "ops_dispatch",
+              "template_ref": "@tpl_norm_ready"
+            }
+          }
+        ],
+        "trace": [
+          {
+            "rule_id": "r_normalize_publish",
+            "matched_clauses": [
+              "event_type_equals:normalize",
+              "payload_path_startswith:normalized_text=Verkehrsunfall",
+              "payload_path_len_gte:entities=1"
+            ],
+            "score": 1.0,
+            "timestamp": "2026-03-01T10:00:02Z"
+          }
+        ],
+        "action_plan": [
+          {
+            "step": 1,
+            "kind": "notify",
+            "params": {
+              "channel": "ops_dispatch",
+              "template": "Normalisierung abgeschlossen: Einsatzlage aktualisieren."
+            }
+          }
+        ],
+        "resolved_refs": {
+          "tpl_norm_ready": "Normalisierung abgeschlossen: Einsatzlage aktualisieren."
+        }
+      }
+    ],
+    "summary": {
+      "fixture_count": 2,
+      "matched_count": 2,
+      "mismatch_count": 0,
+      "runtime_error_count": 0,
+      "total_fixture_count": 2,
+      "fixture_class_counts": {
+        "ok": 2,
+        "expectation_mismatch": 0,
+        "runtime_error": 0
+      },
+      "fixture_class_ids": {
+        "ok": [
+          "event-01-ingest",
+          "event-02-normalize"
+        ],
+        "expectation_mismatch": [],
+        "runtime_error": []
+      },
+      "action_plan_count": 2,
+      "resolved_ref_count": 1
+    },
+    "status": "ok",
+    "replay_status": "ok",
+    "strict_profile": {
+      "expected_pack_id": "ingest-normalize",
+      "expected_baseline_shape": "inline-statements",
+      "expected_total_fixture_count": 2,
+      "expected_fixture_class_counts": {
+        "ok": 2,
+        "expectation_mismatch": 0,
+        "runtime_error": 0
+      },
+      "expected_action_plan_count": 2,
+      "expected_resolved_refs_count": 1,
+      "expected_mismatch_count": 0,
+      "expected_expectation_mismatch_count": 0,
+      "expected_runtime_error_count": 0,
+      "expected_rule_source_status": "ok"
+    },
+    "strict_profile_mismatches": []
+  }
+}

@@ -1,0 +1,1 @@
+{"actions":[{"kind":"route","params":{"reason":"cross_field_payload_match_ci","target":"cross_path_ci_lane"}}],"trace":[{"rule_id":"route_cross_field_casefold_contract","matched_clauses":["event_type_present","event_type_equals:normalize","payload_path_equals_path_ci:routing.team=routing.owner","payload_path_not_equals_path_ci:routing.team=routing.backup_team"],"score":1.0}]}

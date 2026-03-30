@@ -41,11 +41,11 @@ SCHEMA: dict[str, StatementSchema] = {
     "erz": StatementSchema(required=("v",)),
     # Sprint-1 long-form tags
     "event": StatementSchema(required=("type",), optional=("payload",)),
-    "rule": StatementSchema(required=("id", "when", "then")),
+    "rule": StatementSchema(required=("id", "when", "then"), optional=("priority",)),
     "action": StatementSchema(required=("kind",), optional=("params",)),
     # Sprint-3 compact tags
     "ev": StatementSchema(required=("type",), optional=("payload",)),
-    "rl": StatementSchema(required=("id", "when", "then")),
+    "rl": StatementSchema(required=("id", "when", "then"), optional=("priority",)),
     "ac": StatementSchema(required=("kind",), optional=("params",)),
     "tr": StatementSchema(
         required=("rule_id", "matched_clauses"),
@@ -385,6 +385,10 @@ def _validate_statement(statement: dict[str, Any]) -> None:
     if tag in {"rule", "rl"}:
         if not isinstance(fields["id"], str):
             raise CompactValidationError(f"'{tag}.id' must be a string")
+        if "priority" in fields and (
+            isinstance(fields["priority"], bool) or not isinstance(fields["priority"], int)
+        ):
+            raise CompactValidationError(f"'{tag}.priority' must be an integer")
         when_value = fields["when"]
         if not isinstance(when_value, list) or not all(isinstance(item, str) for item in when_value):
             raise CompactValidationError(f"'{tag}.when' must be a list of strings")

@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_dynamic_length_contract",when:["event_type_present","event_type_equals:normalize","payload_path_len_eq_path:routing.channels=policy.expected_channels","payload_path_len_not_eq_path:routing.channels=policy.blocked_targets","payload_path_len_gt_path:message.subject=policy.prefix","payload_path_len_gte_path:entities=audit.labels","payload_path_len_lt_path:flags=policy.allowed_targets","payload_path_len_lte_path:meta.annotations=policy.annotation_cap"],then:[{kind:"route",params:{target:"dynamic_length_lane",reason:"dynamic_length_payload_match"}}]}

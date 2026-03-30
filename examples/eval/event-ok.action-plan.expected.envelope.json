@@ -1,0 +1,1 @@
+{"actions":[{"kind":"notify","params":{"channel":"ops","severity_ref":"@sev_label"}}],"trace":[{"rule_id":"route_ops","matched_clauses":["event_type_present","payload_has:severity"],"score":1.0}],"action_plan":[{"step":1,"kind":"notify","params":{"channel":"ops","severity":"high"}}],"resolved_refs":{"sev_label":"high"}}

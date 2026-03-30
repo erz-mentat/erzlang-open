@@ -1,0 +1,16 @@
+{
+  "type": "normalize",
+  "payload": {
+    "blocked": {
+      "subject_regex": "resolved|suppressed",
+      "subject_regex_ci": "SUPPRESSED|RESOLVED"
+    },
+    "message": {
+      "subject": "Ticket 42 ESCALATED"
+    },
+    "policy": {
+      "subject_regex": "^Ticket\\s+\\d+\\s+ESCALATED$",
+      "subject_regex_ci": "^ticket\\s+42\\s+escalated$"
+    }
+  }
+}

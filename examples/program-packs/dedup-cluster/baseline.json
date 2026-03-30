@@ -141,6 +141,17 @@
           "timestamp": "2026-02-25T12:00:00Z",
           "seed": "case-attach-ops"
         }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "cluster_attach",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "dedup",
+            "reason": "time_geo_category_match"
+          }
+        }
       ]
     },
     {
@@ -188,6 +199,17 @@
           "timestamp": "2026-02-25T12:05:00Z",
           "seed": "case-new-security-geo"
         }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "security",
+            "mode": "new",
+            "reason": "geo_radius_miss"
+          }
+        }
       ]
     },
     {
@@ -234,6 +256,17 @@
           "score": 1.0,
           "timestamp": "2026-02-25T12:10:00Z",
           "seed": "case-new-ops-time"
+        }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "cluster_new",
+          "params": {
+            "cluster_bucket": "ops",
+            "mode": "new",
+            "reason": "time_window_miss"
+          }
         }
       ]
     },

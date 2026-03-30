@@ -1,0 +1,24 @@
+{
+  "type": "normalize",
+  "payload": {
+    "blocked": {
+      "fragment": "resolved",
+      "fragment_ci": "RESOLVED",
+      "prefix": "Alarm",
+      "prefix_ci": "alarm",
+      "suffix": "tomorrow",
+      "suffix_ci": "TOMORROW"
+    },
+    "message": {
+      "subject": "Ticket 42 ESCALATED"
+    },
+    "policy": {
+      "fragment": "42",
+      "fragment_ci": "ticket 42",
+      "prefix": "Ticket",
+      "prefix_ci": "ticket",
+      "suffix": "ESCALATED",
+      "suffix_ci": "escalated"
+    }
+  }
+}

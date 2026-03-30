@@ -1,0 +1,1 @@
+{"type":"normalize","payload":{"routing":{"service":"svc-berlin-edge","channels":["push","Sms"]},"message":{"level":"Info"},"tags":["Berlin","Ops"],"flags":["new","Escalated"]}}

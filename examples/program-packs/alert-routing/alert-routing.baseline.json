@@ -123,6 +123,18 @@
           "timestamp": "2026-02-25T17:00:00Z",
           "seed": "fixture-critical-high"
         }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "route",
+          "params": {
+            "priority": "p1",
+            "reason": "critical+high_confidence",
+            "target": "oncall_primary",
+            "via": "pager"
+          }
+        }
       ]
     },
     {
@@ -178,6 +190,18 @@
           "calibrated_probability": 0.76,
           "timestamp": "2026-02-25T17:05:00Z",
           "seed": "fixture-critical-low"
+        }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "route",
+          "params": {
+            "priority": "p1",
+            "reason": "critical+low_confidence",
+            "target": "safety_triage",
+            "via": "human_review"
+          }
         }
       ]
     },
@@ -235,6 +259,18 @@
           "calibrated_probability": 0.88,
           "timestamp": "2026-02-25T17:10:00Z",
           "seed": "fixture-warning-high"
+        }
+      ],
+      "expected_action_plan": [
+        {
+          "step": 1,
+          "kind": "route",
+          "params": {
+            "priority": "p2",
+            "reason": "warning+high_confidence",
+            "target": "ops_digest",
+            "via": "queue"
+          }
         }
       ]
     }

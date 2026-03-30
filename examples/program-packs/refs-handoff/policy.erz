@@ -1,0 +1,21 @@
+erz{v:1}
+rl{id:"r_ops_primary_page",when:["event_type_present","event_type_equals:alert","payload_path_exists:alert.id","payload_path_equals:routing.team=ops","payload_path_gte:measurements.severity=0.9"],then:[{kind:"notify",params:{channel_ref:"@ch_ops_pager",labels:[{value_ref:"@label_critical"},{value_ref:"@label_ops"}],payload:{owner:{team_ref:"@team_ops"},priority_ref:"@prio_p1",runbook_ref:"@runbook_ops"},template_ref:"@tpl_ops_page"}}]}
+rl{id:"r_security_triage",when:["event_type_present","event_type_equals:alert","payload_path_exists:alert.id","payload_path_equals:routing.team=security","payload_path_gte:measurements.severity=0.9"],then:[{kind:"notify",params:{channel_ref:"@ch_sec_triage",labels:[{value_ref:"@label_critical"},{value_ref:"@label_security"},{value_ref:"@label_triage"}],payload:{owner:{team_ref:"@team_sec"},priority_ref:"@prio_p1",runbook_ref:"@runbook_sec"},template_ref:"@tpl_sec_triage"}}]}
+rl{id:"r_ops_digest",when:["event_type_present","event_type_equals:alert","payload_path_equals:routing.team=ops","payload_path_gte:measurements.severity=0.6","payload_path_lt:measurements.severity=0.9"],then:[{kind:"notify",params:{channel_ref:"@ch_ops_digest",labels:[{value_ref:"@label_warning"},{value_ref:"@label_ops"}],payload:{owner:{team_ref:"@team_ops"},priority_ref:"@prio_p2"},template_ref:"@tpl_ops_digest"}}]}
+rf{id:"ch_ops_pager",v:"ops_pager"}
+rf{id:"ch_sec_triage",v:"security_triage"}
+rf{id:"ch_ops_digest",v:"ops_digest"}
+rf{id:"tpl_ops_page",v:"Page primary on-call immediately"}
+rf{id:"tpl_sec_triage",v:"Escalate to security triage"}
+rf{id:"tpl_ops_digest",v:"Queue for ops digest review"}
+rf{id:"prio_p1",v:"p1"}
+rf{id:"prio_p2",v:"p2"}
+rf{id:"runbook_ops",v:"rb://ops/primary-page"}
+rf{id:"runbook_sec",v:"rb://security/triage"}
+rf{id:"team_ops",v:"ops"}
+rf{id:"team_sec",v:"security"}
+rf{id:"label_critical",v:"critical"}
+rf{id:"label_warning",v:"warning"}
+rf{id:"label_ops",v:"ops"}
+rf{id:"label_security",v:"security"}
+rf{id:"label_triage",v:"triage"}

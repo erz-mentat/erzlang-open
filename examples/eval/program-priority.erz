@@ -1,0 +1,4 @@
+erz{v:1}
+rule{id:"route_default",when:["event_type_present","event_type_equals:priority_demo"],then:[{kind:"route",params:{reason:"default_priority_zero",target:"default_lane"}}]}
+rule{id:"route_urgent_b",when:["event_type_present","event_type_equals:priority_demo"],then:[{kind:"route",params:{reason:"explicit_priority_hundred",target:"urgent_b_lane"}}],priority:100}
+rule{id:"route_urgent_a",when:["event_type_present","event_type_equals:priority_demo"],then:[{kind:"route",params:{reason:"explicit_priority_hundred",target:"urgent_a_lane"}}],priority:100}

@@ -10,8 +10,8 @@ Run the refresh helper from the repo root. It rewrites the tracked snapshot outp
 - `baseline/` — flat `mode=all` artifact set with manifest + `run.id=threshold-ci-baseline-001`
 - `candidate-clean/` — manifest-bearing clean candidate snapshot + `run.id=threshold-ci-candidate-clean-001`
 - `triage-by-status/` — `errors-only` + `by-status` artifact set with manifest + `run.id=threshold-ci-triage-001`, also reused as the strict self-compare candidate snapshot
-- `*.expected.summary.txt` — frozen `--summary` outputs for verify/compare/self-compare handoff checks
-- `*.expected.json` — frozen standalone verify/compare plus generation-time self-verify/self-compare JSON sidecars
+- `*.expected.summary.txt` — frozen `--summary` outputs for verify/compare handoff checks
+- `*.expected.json` — frozen standalone verify/compare outputs, generation-time self-verify JSON sidecars, plus generation-time self-compare handoff bundles
 
 ## One-shot refresh
 
@@ -32,10 +32,8 @@ The helper regenerates all tracked outputs in one deterministic pass:
 - `candidate-clean-vs-baseline.compare.expected.json`
 - `triage-vs-baseline.compare.expected.summary.txt`
 - `triage-vs-baseline.compare.expected.json`
-- `candidate-clean-vs-baseline.self-compare.expected.summary.txt`
-- `triage-by-status-vs-baseline.self-compare.expected.summary.txt`
-- `self-compare-vs-baseline.expected.json`
-- `self-compare-triage-vs-baseline.expected.json`
+- `candidate-clean-vs-baseline.handoff-bundle.expected.json`
+- `triage-by-status-vs-baseline.handoff-bundle.expected.json`
 
 For temp-copy replays or test harnesses, point it at another fixture tree:
 

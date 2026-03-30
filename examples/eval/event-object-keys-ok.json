@@ -1,0 +1,1 @@
+{"type":"normalize","payload":{"enrichment":{"labels":{"severity":"critical","team":"ops"}},"headers":{"X-Env":"prod","X-Trace-Id":"abc123","x-alt-route":"blue"},"policy":{"alt_header":"X-ALT-ROUTE","blocked_header":"X-Blocked","missing_header":"x-legacy","primary_header":"X-Env"}}}

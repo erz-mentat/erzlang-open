@@ -1,0 +1,2 @@
+erz{v:1}
+rule{id:"route_cross_field_contract",when:["event_type_present","event_type_equals:normalize","payload_path_equals_path:routing.team=routing.owner","payload_path_not_equals_path:routing.team=routing.backup_team","payload_path_gte_path:priority.score=priority.floor","payload_path_lte_path:priority.score=priority.ceiling","payload_path_gt_path:window.sla_minutes=metrics.retries","payload_path_lt_path:window.minutes_since_anchor=window.sla_minutes"],then:[{kind:"route",params:{target:"cross_path_lane",reason:"cross_field_payload_match"}}]}

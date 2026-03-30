@@ -1,0 +1,5 @@
+status=ok replay_status=ok packs=4 ok_packs=4 error_packs=0 fixtures=13 matched=13 mismatches=0 runtime_errors=0 rule_sources=ok:4,mismatch:0 fixture_classes=ok:13,expectation_mismatch:0,runtime_error:0 plan=11 resolved_refs=22 strict_mismatches=0
+pack[1] path=ingest-normalize status=ok pack=ingest-normalize fixtures=2 matched=2 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:2,expectation_mismatch:0,runtime_error:0 plan=2 resolved_refs=1
+pack[2] path=alert-routing status=ok pack=sprint-7-pack-03-alert-routing fixtures=3 matched=3 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:3,expectation_mismatch:0,runtime_error:0 plan=3 resolved_refs=0
+pack[3] path=dedup-cluster status=ok pack=sprint-7-program-pack-2-dedup-cluster fixtures=4 matched=4 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:4,expectation_mismatch:0,runtime_error:0 plan=3 resolved_refs=0
+pack[4] path=refs-handoff status=ok pack=sprint-7-program-pack-4-refs-handoff fixtures=4 matched=4 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:4,expectation_mismatch:0,runtime_error:0 plan=3 resolved_refs=21

@@ -1,0 +1,1 @@
+{"type":"normalize","payload":{"metrics":{"retries":2},"priority":{"ceiling":1.0,"floor":0.9,"score":0.97},"routing":{"backup_team":"security","owner":"ops","team":"ops"},"window":{"minutes_since_anchor":6,"sla_minutes":10}}}

@@ -1,0 +1,1 @@
+status=ok replay_status=ok pack=sprint-7-pack-03-alert-routing fixtures=3 matched=3 mismatches=0 runtime_errors=0 rule_source=ok fixture_classes=ok:3,expectation_mismatch:0,runtime_error:0 plan=3 resolved_refs=0 strict_mismatches=0

@@ -1,0 +1,1 @@
+{"actions":[{"kind":"route","params":{"reason":"event_type_set_match","target":"event_type_set_lane"}}],"trace":[{"rule_id":"route_allowed_event_type_set","matched_clauses":["event_type_present","event_type_in:alert,incident_candidate","event_type_not_in:heartbeat,debug","payload_has:severity"],"score":1.0}]}
